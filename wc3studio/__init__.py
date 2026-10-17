@@ -10,6 +10,14 @@ Quick start::
     export_obj(model, "sheep.obj", resources)
     export_glb(model, "sheep.glb", resources)
 
+Data tables and the interface::
+
+    from wc3studio import TableDatabase, UiLibrary
+
+    units = TableDatabase(game).units()          # gameplay numbers, joined
+    ui = UiLibrary(game)                          # FDF frame definitions
+    ui.resolve("StandardHeavyBackdropTemplate")
+
 Or from the command line::
 
     python -m wc3studio --help
@@ -17,7 +25,7 @@ Or from the command line::
 """
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 from .anim import Animator
 from .blp import decode as decode_blp
@@ -27,10 +35,13 @@ from .objexport import export_obj
 from .render import fit_camera, render
 from .resources import Resources, pick_layer
 from .stormlib import Archive, Game, StormLib, StormLibError, find_game_dirs
+from .tables import Table, TableDatabase, parse_ini, parse_sylk
+from .ui import FdfDocument, Frame, UiLibrary, parse_fdf
 
 __all__ = [
     "__version__",
-    "Animator", "Archive", "Game", "Glb", "MdxError", "Model", "Resources", "StormLib",
-    "StormLibError", "decode_blp", "export_glb", "export_obj", "find_game_dirs",
-    "fit_camera", "parse_mdx", "pick_layer", "read_glb", "render",
+    "Animator", "Archive", "FdfDocument", "Frame", "Game", "Glb", "MdxError", "Model",
+    "Resources", "StormLib", "StormLibError", "Table", "TableDatabase", "UiLibrary",
+    "decode_blp", "export_glb", "export_obj", "find_game_dirs", "fit_camera",
+    "parse_fdf", "parse_ini", "parse_mdx", "parse_sylk", "pick_layer", "read_glb", "render",
 ]
