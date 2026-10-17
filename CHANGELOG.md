@@ -4,6 +4,36 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-10-17
+
+A GPU window, because the old one could not keep up.
+
+### Why
+
+The Tkinter preview was not slow because of Tk: converting a 512x512 frame to a Tk
+image costs 1.6 ms. The CPU rasteriser did: **155 ms per frame** (6.4 fps) for a Knight
+at 512x512, up to 244 ms at 800x800. Playback therefore never had a chance.
+
+### Added
+
+* **`gui --framework qt`** — a PySide6 window with an **OpenGL viewport**
+  (`wc3studio/glview.py`): the CPU only skins the mesh (a few milliseconds of numpy) and
+  the graphics card rasterises and textures it. Measured on this machine: **62.6 fps at
+  1380x900** for the same Knight, versus 6.4 fps before.
+  * orbit with the mouse, zoom with the wheel, `Space` to play/pause;
+  * animation list, texture preview, model info and export buttons;
+  * asset tree with search; `--model` / `--sequence` to open something straight away.
+* `--framework tk` still starts the old window; `auto` prefers Qt and falls back to Tk
+  when PySide6 is missing.
+* `[qt]` optional dependency: `pip install -e ".[qt]"`.
+
+### Notes
+
+* The GL viewport skips additive glow planes and the contact shadow, exactly like the
+  preview path of the CPU renderer; colours are close but not identical.
+* Textures now travel to the GPU as RGBA bytes built once per material and reused for
+  every frame.
+
 ## [1.5.0] - 2026-10-17
 
 Icons for units and abilities.
