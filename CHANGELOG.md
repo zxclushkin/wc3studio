@@ -4,6 +4,41 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-10-17
+
+An API that an AI agent can use without reading `--help`.
+
+### Added
+
+* **`wc3studio agent`** — self-describing JSON API: one request in, one JSON object out,
+  no prompts, no prose on stdout. 15 operations covering search, model info/animations/
+  render/export, data tables, units, interface frames, audio and bundles.
+  * `--capabilities` returns a manifest of every operation with its parameters and
+    result shape, so an agent can discover the surface at runtime;
+  * errors carry a stable `code` (`BAD_PARAM`, `MODEL_NOT_FOUND`, `GAME_NOT_FOUND`, …)
+    plus `hints` listing the allowed operations, parameters or columns;
+  * exit codes are part of the contract: 0 ok, 2 bad request, 3 not found, 4 no game;
+  * `--call OP --params JSON`, a request on stdin, or `--batch FILE` for JSONL streams
+    (the session stays open, so batch turns cost ~2 ms per request instead of ~0.5 s).
+* **`wc3studio mcp`** — dependency-free MCP server on stdio: `initialize`,
+  `tools/list`, `tools/call`, `ping`. Every API operation becomes an MCP tool with a
+  generated `inputSchema`, so Claude Desktop, Cursor and other MCP clients can call the
+  tool straight away.
+* **`wc3studio audio`** — the game's audio: 6444 files, 670 MiB, grouped into music,
+  ambient, dialogue, unit voice lines, ability sounds and UI. `--durations` measures
+  play time by parsing WAV headers (exact) and MP3 frame headers (approximate);
+  `--extract` copies them out byte for byte.
+* **Python API** — `from wc3studio import Api; Api().call({"op": "model.info", ...})`.
+
+### Fixed
+
+* **Geoset bounds were wrong for many models.** The extents stored in the MDX header do
+  not match the model's own vertices in every file (the Sheep reported 76.8 against a
+  real maximum of 26.1). They are now derived from the vertices at parse time, which
+  also makes `bounds_radius` trustworthy. Found while building `model.info`.
+* `Game.names()` rebuilt its 17 000-name list on every call; it is cached now, as is a
+  new case-folded name → size map used by the API.
+
 ## [1.3.0] - 2026-10-17
 
 Sound, and everything else that belongs to a model.

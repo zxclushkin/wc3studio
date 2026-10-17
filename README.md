@@ -31,6 +31,7 @@
 | **Данные** | 213 таблиц (SLK + INI) → CSV/JSON, склеенная база **812 юнитов** с русскими названиями и всеми характеристиками |
 | **Интерфейс** | 86 FDF → дерево **2239 фреймов** с наследованием шаблонов, 1214 локализованных строк, выгрузка 1561 картинки UI в PNG |
 | **Бандл** | `bundle` — всё сразу в папку и/или **zip**: OBJ, glTF с анимациями, **звуки модели**, `.mdx`, таблицы CSV, интерфейс PNG, GIF-превью, `models.json` и `manifest.json` |
+| **Для агентов** | `agent` — самодокументируемый JSON-API (15 операций, коды ошибок и подсказки для самокоррекции), `mcp` — MCP-сервер для Claude Desktop, Cursor и прочих клиентов |
 | **Проверка** | `validate` (индексы OBJ, ссылки на MTL, структура GLB) и `doctor` (окружение, поиск игры) |
 
 ## Установка
@@ -223,6 +224,66 @@ zip — 67 МиБ. Полный набор с звуками — примерн�
 
 ![Bundle dialog](docs/bundle-dialog.png)
 
+## Для ИИ-агентов
+
+Инструмент сам рассказывает, что умеет, и отвечает только JSON — без интерактива,
+баннеров и русских сообщений в stdout. Агенту не нужно читать `--help`.
+
+```powershell
+wc3studio agent --capabilities                      # манифест: 15 операций, их параметры
+wc3studio agent --call model.info --params '{"model": "sheep"}'
+'{"op":"units.query","filter":"hfoo"}' | wc3studio agent
+wc3studio agent --batch requests.jsonl              # JSONL: одна строка — один запрос
+```
+
+Ответ всегда объект с `ok`, а ошибки — со стабильным кодом и подсказками:
+
+```json
+{"ok": false, "op": "tables.query",
+ "error": {"code": "BAD_PARAM", "message": "no column 'nope'",
+           "hints": ["columns: unitBalanceID, HP, goldcost, …"]}}
+```
+
+| код | смысл | hint подсказывает |
+|---|---|---|
+| `BAD_REQUEST`, `BAD_PARAM`, `UNKNOWN_OP` | агент позвал не то | список известных операций и допустимых параметров |
+| `MODEL_NOT_FOUND`, `TABLE_NOT_FOUND`, `FRAME_NOT_FOUND` | нет такого объекта | как найти точное имя (`assets.search`) |
+| `GAME_NOT_FOUND` | не найдена установка игры | путь к папке или `doctor` |
+
+Коды выхода: `0` успех, `2` плохой запрос, `3` не найдено, `4` нет игры — агент может
+ветвиться по коду, не разбирая текст.
+
+**MCP-сервер** — то же самое, но как инструменты для любого MCP-клиента:
+
+```powershell
+wc3studio mcp        # JSON-RPC по stdio: initialize, tools/list, tools/call
+```
+
+```json
+{"mcpServers": {"wc3studio": {"command": "python", "args": ["-m", "wc3studio", "mcp"]}}}
+```
+
+Из Python: `from wc3studio import Api; Api().call({"op": "model.info", "model": "sheep"})`.
+
+Пакетный режим держит сессию открытой: первый запрос ~0.5 с (индексация архивов),
+следующие — единицы миллисекунд.
+
+Операции: `capabilities`, `doctor`, `assets.search`, `assets.list`, `model.info`,
+`model.animations`, `model.render`, `model.export`, `tables.list`, `tables.query`,
+`units.query`, `ui.documents`, `ui.frame`, `audio.list`, `bundle.build`.
+
+## Звук
+
+```powershell
+wc3studio audio                    # сколько чего: музыка, эмбиент, диалоги, юниты, UI
+wc3studio audio --durations        # + часы прослушивания (читает каждый файл)
+wc3studio audio --category music --list
+wc3studio audio --extract --out out\audio --category dialogue
+```
+
+6444 файла, 670 МиБ: юниты 3128 (314 МиБ), диалоги кампании 2383 (163 МиБ), музыка
+44 трека (96 МиБ), способности 365, эмбиент 73, интерфейс 135.
+
 ## Библиотека
 
 ```python
@@ -268,6 +329,8 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 | `objexport.py` | OBJ/MTL + PNG-текстуры |
 | `gltf.py` | экспорт .glb (скин + анимации) и чтение .glb для проверки |
 | `resources.py` | разрешение путей текстур и кэш изображений |
+| `agent.py` | JSON-API для агентов + MCP-сервер |
+| `audio.py` | инвентаризация и выгрузка звука |
 | `pipeline.py` | `Session`, рендер анимации, GIF/MP4 |
 | `bundle.py` | `bundle`: модели, glTF, raw, таблицы и интерфейс в папку/zip + `manifest.json` |
 | `cli.py`, `gui.py` | интерфейсы |
@@ -310,7 +373,7 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 python -m unittest discover -s tests -v
 ```
 
-64 теста в четырёх наборах:
+82 теста в пяти наборах:
 
 * **`tests/test_synthetic.py`** — модель MDX собирается прямо в памяти и проходит весь
   конвейер (парсинг → рендер → OBJ → GLB → чтение обратно). Работает без игры, поэтому
@@ -324,6 +387,9 @@ python -m unittest discover -s tests -v
   `.glb` внутри бандла действительно содержит анимации, и что 18 звуков Пехотинца лежат
   рядом с его мешом. Тест на порядок «манифест → архив» поймал настоящую ошибку:
   манифест сначала писался после архивации и не попадал в zip.
+* **`tests/test_agent.py`** — контракт API: манифест операций, коды ошибок, подсказки
+  для самокоррекции, JSON на каждый ответ, рукопожатие и вызов инструментов через
+  MCP (без игры) и реальные данные через операции.
 * **`tests/test_wc3studio.py`** и игровые тесты в `test_tables_ui.py` — на реальных
   архивах: 812 юнитов, ноль предупреждений на 86 FDF, локализованные строки, инвентарь
   картинок. Без установленной игры помечаются как skipped.
@@ -348,9 +414,10 @@ wc3studio/            пакет
   resources.py        текстуры и кэш
   pipeline.py         Session — общий слой для CLI и GUI
   bundle.py           bundle: полный набор в папку/zip + manifest
+  agent.py  audio.py  JSON-API для агентов, звук
   cli.py  gui.py      интерфейсы
   vendor/             StormLib.dll (x64, MIT)
-tests/                64 теста
+tests/                82 теста
 tools/                smoke-скрипты, проверка GLB через trimesh, захват окна
 docs/                 скриншот, галерея, демо-анимация, картинка интерфейса
 .github/workflows/    CI
