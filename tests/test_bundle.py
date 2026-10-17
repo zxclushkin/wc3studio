@@ -45,7 +45,7 @@ class TestBundleOptions(unittest.TestCase):
 
     def test_empty_formats_fall_back(self):
         options = BundleOptions(out="x", formats=set()).normalised()
-        self.assertEqual(options.formats, {"models", "glb"})
+        self.assertEqual(options.formats, {"models", "glb", "sounds"})
 
 
 class TestRealBundle(unittest.TestCase):
@@ -99,6 +99,45 @@ class TestRealBundle(unittest.TestCase):
             document = read_glb(glb)
             self.assertTrue(document.gltf.get("animations"), "the glb must carry animations")
             self.assertIn("skins", document.gltf)
+
+    def test_sounds_land_next_to_their_model(self):
+        """MDX does not reference audio: a unit's voice lines sit in its folder."""
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle"
+            options = BundleOptions(out=out, formats={"sounds", "glb"},
+                                    model_filter=r"Units\Human\Footman", limit=1)
+            stats = build_bundle(self.session, options)
+
+            footman = out / "Units" / "Human" / "Footman"
+            wavs = sorted(footman.glob("*.wav"))
+            self.assertEqual(len(wavs), 18, [path.name for path in wavs])
+            self.assertEqual(stats["counts"]["sounds"], 18)
+            self.assertIn("FootmanDeath.wav", [path.name for path in wavs])
+            self.assertTrue(any("Yes" in path.name for path in wavs))
+
+            # the audio must be the real thing, not an empty stub
+            self.assertGreater(wavs[0].stat().st_size, 1024)
+
+    def test_index_lists_everything_from_a_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "bundle"
+            options = BundleOptions(out=out, formats={"models", "glb", "sounds"},
+                                    model_filter=r"Units\Human\Footman", limit=1)
+            build_bundle(self.session, options)
+
+            records = json.loads((out / "models.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(records), 1)
+            record = records[0]
+            self.assertEqual(record["model"], r"Units\Human\Footman\Footman.mdx")
+            self.assertIn("Footman.obj", record["files"])
+            self.assertIn("Footman.glb", record["files"])
+            self.assertIn(r"Units\Human\Footman\Footman_Portrait.mdx", [record["portrait"]])
+            self.assertTrue(record["textures"], "the model references textures")
+            self.assertEqual(len(record["sounds"]), 18)
+            self.assertEqual(record["sound_count"], 18)
+            self.assertGreater(record["triangles"], 100)
+            self.assertGreater(record["bones"], 5)
+            self.assertIn("Stand - 1", record["animations"])
 
     def test_bundle_with_raw_tables_and_zip(self):
         with tempfile.TemporaryDirectory() as tmp:
