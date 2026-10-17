@@ -13,7 +13,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from wc3studio.glview import look_at, perspective
+from wc3studio.render import look_at_matrix as look_at
+from wc3studio.render import perspective_matrix as perspective
 
 
 class TestCameraMath(unittest.TestCase):

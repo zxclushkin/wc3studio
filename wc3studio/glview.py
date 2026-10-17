@@ -15,7 +15,8 @@ from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram
                               QOpenGLTexture, QOpenGLVertexArrayObject)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
-from .render import DEFAULT_BG, collect, fit_camera
+from .render import (DEFAULT_BG, collect, fit_camera, look_at_matrix,
+                     perspective_matrix)
 
 VERTEX_SHADER = """
 #version 330 core
@@ -50,37 +51,6 @@ void main() {
     fragColor = vec4(texture(uTexture, vUV).rgb, 1.0);
 }
 """
-
-
-def look_at(eye, target, up=(0.0, 0.0, 1.0)) -> np.ndarray:
-    eye = np.asarray(eye, dtype=np.float64)
-    target = np.asarray(target, dtype=np.float64)
-    forward = target - eye
-    forward /= np.linalg.norm(forward) or 1.0
-    up = np.asarray(up, dtype=np.float64)
-    right = np.cross(forward, up)
-    if np.linalg.norm(right) < 1e-6:
-        right = np.cross(forward, np.array([0.0, 1.0, 0.0]))
-    right /= np.linalg.norm(right) or 1.0
-    true_up = np.cross(right, forward)
-    matrix = np.eye(4)
-    matrix[0, :3] = right
-    matrix[0, 3] = -right @ eye
-    matrix[1, :3] = true_up
-    matrix[1, 3] = -true_up @ eye
-    matrix[2, :3] = -forward
-    matrix[2, 3] = forward @ eye
-    return matrix
-
-
-def perspective(focal: float, aspect: float, near: float, far: float) -> np.ndarray:
-    matrix = np.zeros((4, 4))
-    matrix[0, 0] = focal / max(aspect, 1e-6)
-    matrix[1, 1] = focal
-    matrix[2, 2] = (far + near) / (near - far)
-    matrix[2, 3] = 2.0 * far * near / (near - far)
-    matrix[3, 2] = -1.0
-    return matrix
 
 
 class _Item:
@@ -344,11 +314,12 @@ class ModelView(QOpenGLWidget):
                               np.sin(pitch)])
         distance = radius / np.tan(np.radians(self.fov) / 2.0) * 1.15 / max(self.zoom, 1e-3)
         eye = center + direction * distance
-        view = look_at(eye, center)
+        view = look_at_matrix(eye, center)
         aspect = self.width() / max(self.height(), 1)
         near = max(distance * 0.02, 0.05)
         far = distance + radius * 6.0
-        projection = perspective(1.0 / np.tan(np.radians(self.fov) / 2.0), aspect, near, far)
+        projection = perspective_matrix(1.0 / np.tan(np.radians(self.fov) / 2.0),
+                                        aspect, near, far)
         mvp = projection @ view
 
         functions.glViewport(0, 0, self.width(), self.height())

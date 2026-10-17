@@ -126,6 +126,39 @@ def _look_at(eye, target, up=(0.0, 0.0, 1.0)):
     return eye, np.stack([right, up, forward])
 
 
+def look_at_matrix(eye, target, up=(0.0, 0.0, 1.0)) -> np.ndarray:
+    """Right-handed view matrix: the camera looks down -Z, as OpenGL expects."""
+    eye = np.asarray(eye, dtype=np.float64)
+    target = np.asarray(target, dtype=np.float64)
+    forward = target - eye
+    forward /= np.linalg.norm(forward) or 1.0
+    up = np.asarray(up, dtype=np.float64)
+    right = np.cross(forward, up)
+    if np.linalg.norm(right) < 1e-6:
+        right = np.cross(forward, np.array([0.0, 1.0, 0.0]))
+    right /= np.linalg.norm(right) or 1.0
+    true_up = np.cross(right, forward)
+    matrix = np.eye(4)
+    matrix[0, :3] = right
+    matrix[0, 3] = -right @ eye
+    matrix[1, :3] = true_up
+    matrix[1, 3] = -true_up @ eye
+    matrix[2, :3] = -forward
+    matrix[2, 3] = forward @ eye
+    return matrix
+
+
+def perspective_matrix(focal: float, aspect: float, near: float, far: float) -> np.ndarray:
+    """OpenGL projection: near maps to -1 and far to +1 in clip space."""
+    matrix = np.zeros((4, 4))
+    matrix[0, 0] = focal / max(aspect, 1e-6)
+    matrix[1, 1] = focal
+    matrix[2, 2] = (far + near) / (near - far)
+    matrix[2, 3] = 2.0 * far * near / (near - far)
+    matrix[3, 2] = -1.0
+    return matrix
+
+
 def camera_for_bounds(low, high, margin: float = 1.14) -> dict:
     center = (np.asarray(low, dtype=np.float64) + np.asarray(high, dtype=np.float64)) / 2.0
     radius = float(np.linalg.norm(np.asarray(high) - np.asarray(low))) / 2.0
