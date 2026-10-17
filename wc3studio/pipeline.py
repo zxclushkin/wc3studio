@@ -89,6 +89,10 @@ class Session:
     def raw(self, internal_path: str) -> bytes | None:
         return self.game.read(internal_path)
 
+    def size(self, internal_path: str) -> int:
+        """Size of one internal file in bytes (0 when missing)."""
+        return self.game.size(internal_path)
+
     def load(self, internal_path: str) -> Model:
         key = internal_path.lower()
         if key not in self._models:

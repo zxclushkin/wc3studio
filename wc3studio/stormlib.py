@@ -242,6 +242,8 @@ class Game:
         self.root = root
         self._index: dict[str, str] | None = None
         self._cache: dict[str, bytes | None] = {}
+        self._names: list[str] | None = None
+        self._sizes: dict[str, int] | None = None
 
     @classmethod
     def open(cls, game_dir: str | os.PathLike) -> "Game":
@@ -306,12 +308,28 @@ class Game:
         return data
 
     def names(self) -> list[str]:
-        """Every internal name, deduplicated case-insensitively."""
-        seen: dict[str, str] = {}
-        for archive in self.archives:
-            for name in archive.listfile():
-                seen.setdefault(name.lower(), name)
-        return sorted(seen.values())
+        """Every internal name, deduplicated case-insensitively (cached)."""
+        if self._names is None:
+            seen: dict[str, str] = {}
+            for archive in self.archives:
+                for name in archive.listfile():
+                    seen.setdefault(name.lower(), name)
+            self._names = sorted(seen.values())
+        return self._names
+
+    def sizes(self) -> dict[str, int]:
+        """Case-folded internal name -> file size in bytes (cached)."""
+        if self._sizes is None:
+            sizes: dict[str, int] = {}
+            for archive in reversed(self.archives):  # later archives win
+                for name, size in archive.find():
+                    sizes[name.replace("/", "\\").lower()] = size
+            self._sizes = sizes
+        return self._sizes
+
+    def size(self, name: str) -> int:
+        """Size of one internal file, 0 when it is not in the archives."""
+        return self.sizes().get(name.replace("/", "\\").lower(), 0)
 
     def models(self) -> list[str]:
         return [n for n in self.names() if n.lower().endswith((".mdx", ".mdl"))]

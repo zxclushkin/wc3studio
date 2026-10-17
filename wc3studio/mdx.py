@@ -407,6 +407,18 @@ def _read_geoset(r: Reader, version: int) -> Geoset:
         _expect(r, "UVBS")
         g.uv_sets.append(r.floats(r.u32() * 2))
 
+    # The stored extents are not trustworthy in every model (some files carry values
+    # that do not match their own vertices), so derive them from the geometry instead.
+    if g.vertices:
+        xs, ys, zs = g.vertices[0::3], g.vertices[1::3], g.vertices[2::3]
+        g.min_extent = (min(xs), min(ys), min(zs))
+        g.max_extent = (max(xs), max(ys), max(zs))
+        centre = [(g.min_extent[i] + g.max_extent[i]) / 2 for i in range(3)]
+        g.bounds_radius = max(
+            ((xs[i] - centre[0]) ** 2 + (ys[i] - centre[1]) ** 2
+             + (zs[i] - centre[2]) ** 2) ** 0.5
+            for i in range(len(xs)))
+
     if r.i != end:
         raise MdxError(f"geoset ended at {r.i}, declared {end} (delta {end - r.i})")
     return g
