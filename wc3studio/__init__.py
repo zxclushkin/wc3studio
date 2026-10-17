@@ -31,8 +31,9 @@ Or from the command line::
 """
 from __future__ import annotations
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
+from .agent import Api, capabilities
 from .anim import Animator
 from .blp import decode as decode_blp
 from .bundle import BundleOptions, build_bundle
@@ -47,9 +48,9 @@ from .ui import FdfDocument, Frame, UiLibrary, parse_fdf
 
 __all__ = [
     "__version__",
-    "Animator", "Archive", "BundleOptions", "FdfDocument", "Frame", "Game", "Glb",
+    "Animator", "Api", "Archive", "BundleOptions", "FdfDocument", "Frame", "Game", "Glb",
     "MdxError", "Model", "Resources", "StormLib", "StormLibError", "Table",
-    "TableDatabase", "UiLibrary", "build_bundle", "decode_blp", "export_glb",
+    "TableDatabase", "UiLibrary", "build_bundle", "capabilities", "decode_blp", "export_glb",
     "export_obj", "find_game_dirs", "fit_camera", "parse_fdf", "parse_ini",
     "parse_mdx", "parse_sylk", "pick_layer", "read_glb", "render",
 ]
