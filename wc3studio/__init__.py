@@ -8,27 +8,34 @@ Quick start::
     resources = Resources(game)
     model = parse_mdx(game.read(r"Units\\Critters\\Sheep\\Sheep.mdx"))
     export_obj(model, "sheep.obj", resources)
-    export_glb(model, "sheep.glb", resources)
+    export_glb(model, "sheep.glb", resources)     # skeleton + every animation
 
-Data tables and the interface::
+Data tables, the interface, and a one-call bundle::
 
-    from wc3studio import TableDatabase, UiLibrary
+    from wc3studio import TableDatabase, UiLibrary, BundleOptions, build_bundle
+    from wc3studio.pipeline import Session
 
-    units = TableDatabase(game).units()          # gameplay numbers, joined
+    units = TableDatabase(game).units()           # gameplay numbers, joined
     ui = UiLibrary(game)                          # FDF frame definitions
     ui.resolve("StandardHeavyBackdropTemplate")
+
+    build_bundle(Session(game.root),
+                 BundleOptions(out="wc3_assets", formats={"models", "glb", "raw", "tables"},
+                               archive=True))     # folder + zip + manifest
 
 Or from the command line::
 
     python -m wc3studio --help
+    python -m wc3studio bundle --out wc3_assets --formats models,glb,raw,tables --zip
     python -m wc3studio gui
 """
 from __future__ import annotations
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 from .anim import Animator
 from .blp import decode as decode_blp
+from .bundle import BundleOptions, build_bundle
 from .gltf import Glb, export_glb, read_glb
 from .mdx import Model, MdxError, parse as parse_mdx
 from .objexport import export_obj
@@ -40,8 +47,9 @@ from .ui import FdfDocument, Frame, UiLibrary, parse_fdf
 
 __all__ = [
     "__version__",
-    "Animator", "Archive", "FdfDocument", "Frame", "Game", "Glb", "MdxError", "Model",
-    "Resources", "StormLib", "StormLibError", "Table", "TableDatabase", "UiLibrary",
-    "decode_blp", "export_glb", "export_obj", "find_game_dirs", "fit_camera",
-    "parse_fdf", "parse_ini", "parse_mdx", "parse_sylk", "pick_layer", "read_glb", "render",
+    "Animator", "Archive", "BundleOptions", "FdfDocument", "Frame", "Game", "Glb",
+    "MdxError", "Model", "Resources", "StormLib", "StormLibError", "Table",
+    "TableDatabase", "UiLibrary", "build_bundle", "decode_blp", "export_glb",
+    "export_obj", "find_game_dirs", "fit_camera", "parse_fdf", "parse_ini",
+    "parse_mdx", "parse_sylk", "pick_layer", "read_glb", "render",
 ]
