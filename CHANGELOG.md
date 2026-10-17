@@ -4,6 +4,40 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-17
+
+The game's numbers and its interface.
+
+### Added
+
+* **Data tables** (`wc3studio/tables.py`) — parser for the SYLK spreadsheets the game
+  keeps its gameplay in (a cell is `C;X<col>[;Y<row>];K<value>`, and the row number only
+  appears when it changes) plus the INI-like `.txt` files with `[section]` headers.
+  `Table` supports column selection, filtering, CSV/JSON export and writing to disk.
+* **`TableDatabase`** — discovers all 213 tables (59 SLK + 154 TXT), loads them lazily,
+  resolves friendly names (`UnitBalance` → `Units\UnitBalance.slk`, not the Custom/Melee
+  copies) and joins the four unit spreadsheets into a single **812-row unit database**
+  with localised names, HP, mana, armour, damage, DPS, cost, food, build time and
+  ability lists.
+* **Interface layer** (`wc3studio/ui.py`) — FDF parser producing a frame tree with
+  `INHERITS`/`INHERITS WITHCHILDREN` resolution, nested `Texture`/`String` blocks,
+  `StringList` localisation, `IncludeFile` references and both comment styles. Parses all
+  86 shipped FDF files (2239 frames, 1849 unique names) with **zero warnings**.
+* **`UiLibrary`** — frame index, merged properties through the template chain, texture
+  reference resolution (including `.mdl` → `.mdx` and case-insensitive basenames),
+  1214 localised UI strings, UI artwork inventory (1561 images, 84 MiB) and PNG export
+  with contact sheets.
+* **Localisation** — Russian unit names and UI labels are read from the game files
+  (`Units\*Strings.txt`, `StringList` blocks).
+* **CLI** — new subcommands `tables`, `table`, `units`, `strings`, `ui`, `ui-frame`,
+  `ui-textures`, `ui-assets`.
+* **GUI** — two new tabs: **Data** (all tables in a tree, double-click opens a filterable
+  grid with CSV export) and **UI** (FDF documents with their frames, frame browser with
+  resolved templates, UI artwork dump and contact sheet).
+* **Tests** — 56 total (was 25): synthetic SLK/INI/FDF fixtures that run everywhere plus
+  game-backed checks (table shapes, unit database contents, zero-warning FDF parsing,
+  localised strings, artwork inventory).
+
 ## [1.0.0] - 2026-10-17
 
 First public release.
