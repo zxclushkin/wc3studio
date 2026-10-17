@@ -551,6 +551,49 @@ def cmd_bundle(args) -> int:
     return 0 if not stats["errors"] else 1
 
 
+def cmd_audio(args) -> int:
+    from .audio import extract, inventory, summary
+    session = _open(args)
+    if args.extract:
+        out = Path(args.out or "audio")
+        result = extract(session.game, out, category=args.category or None,
+                         needle=args.filter or "", limit=args.limit)
+        print(f"written {result['written']} of {result['count']} files "
+              f"({result['bytes'] / 1048576:.1f} MiB) -> {out.resolve()}")
+        if result["failed"]:
+            print(f"failed: {result['failed']}")
+        return 0
+    files = inventory(session.game, category=args.category or None,
+                      needle=args.filter or "", measure=args.durations)
+    rows = summary(files)
+    print(f"{'category':<11}{'files':>7}{'MiB':>9}{'hours':>8}")
+    for category, data in sorted(rows.items(), key=lambda item: -item[1]["bytes"]):
+        print(f"{category:<11}{data['files']:>7}{data['bytes'] / 1048576:>9.1f}"
+              f"{data['seconds'] / 3600:>8.2f}")
+    total_bytes = sum(data["bytes"] for data in rows.values())
+    total_seconds = sum(data["seconds"] for data in rows.values())
+    print(f"{'total':<11}{len(files):>7}{total_bytes / 1048576:>9.1f}"
+          f"{total_seconds / 3600:>8.2f}")
+    if not args.durations:
+        print("\n(hours are measured with --durations: it reads every file)")
+    if args.list:
+        print()
+        for item in files[: args.limit or 40]:
+            print(f"  {item.size / 1024:>8.1f} KiB  {item.category:<10} {item.internal}")
+    return 0
+
+
+def cmd_agent(args) -> int:
+    from .agent import dispatch_cli
+    argv = list(args.request or [])
+    return dispatch_cli(argv)
+
+
+def cmd_mcp(args) -> int:
+    from .agent import serve_mcp
+    return serve_mcp()
+
+
 def cmd_gui(args) -> int:
     try:
         from .gui import run
@@ -998,6 +1041,29 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--all-geosets", action="store_true")
     p.set_defaults(func=cmd_bundle)
 
+    p = subparsers.add_parser("audio", help="inventory or extract the game's audio")
+    add_game(p)
+    p.add_argument("--category", default="",
+                   choices=["", "music", "ambient", "dialogue", "abilities", "units",
+                            "ui", "other"])
+    p.add_argument("--filter", help="only paths containing this")
+    p.add_argument("--durations", action="store_true",
+                   help="read every file to measure play time (slower)")
+    p.add_argument("--list", action="store_true", help="also print the files")
+    p.add_argument("--extract", action="store_true", help="copy the files out")
+    p.add_argument("--out", help="folder for --extract")
+    p.add_argument("--limit", type=int, default=0)
+    p.set_defaults(func=cmd_audio)
+
+    p = subparsers.add_parser("agent", help="JSON API for AI agents (request on stdin or --call)")
+    p.add_argument("request", nargs=argparse.REMAINDER,
+                   help="--capabilities, --call OP [--params JSON], --batch FILE, --pretty, "
+                        "[--game PATH]")
+    p.set_defaults(func=cmd_agent)
+
+    p = subparsers.add_parser("mcp", help="MCP server on stdio (tools for AI agents)")
+    p.set_defaults(func=cmd_mcp)
+
     p = subparsers.add_parser("gui", help="open the graphical interface")
     add_game(p)
     p.add_argument("--model", help="model to select at startup")
@@ -1009,8 +1075,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    raw = list(sys.argv[1:] if argv is None else argv)
+    # ``agent`` and ``mcp`` take free-form arguments, so they bypass argparse: an agent
+    # should never see "unrecognized arguments", only JSON.
+    if raw and raw[0] == "agent":
+        from .agent import dispatch_cli
+        return dispatch_cli(raw[1:])
+    if raw and raw[0] == "mcp":
+        from .agent import serve_mcp
+        return serve_mcp()
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(raw)
     try:
         return args.func(args)
     except KeyboardInterrupt:
