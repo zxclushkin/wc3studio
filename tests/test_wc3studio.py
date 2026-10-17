@@ -23,11 +23,16 @@ SHEEP = r"Units\Critters\Sheep\Sheep.mdx"
 FOOTMAN = r"Units\Human\Footman\Footman.mdx"
 
 
-def game_or_skip(testcase):
+def game_or_skip(testcase=None):
+    """Open the game, or skip the test.
+
+    Raises ``unittest.SkipTest`` rather than calling ``testcase.skipTest`` because this
+    is used from ``setUpClass`` too, where only the class (not an instance) is available.
+    """
     try:
         return Game.autodetect()
     except StormLibError as exc:
-        testcase.skipTest(f"no Warcraft III installation: {exc}")
+        raise unittest.SkipTest(f"no Warcraft III installation: {exc}") from exc
 
 
 class TestMath(unittest.TestCase):
