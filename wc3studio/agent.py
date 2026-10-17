@@ -420,6 +420,45 @@ def _ui_strings(api, filter="", limit=100, **_):
     return {"total": len(items), "returned": len(limited), "strings": limited}
 
 
+@operation("icons.list", "Command-button icons for units, abilities, upgrades and items",
+           {"kind": {"type": "string", "default": "",
+                     "enum": ["", "unit", "ability", "upgrade", "item"]},
+            "filter": {"type": "string", "default": ""},
+            "model": {"type": "string", "default": ""},
+            "limit": {"type": "integer", "default": 50}},
+           "records[{kind, id, name, icon, model, disabled}], total")
+def _icons_list(api, kind="", filter="", model="", limit=50, **_):
+    index = api.icons()
+    if model:
+        record = index.for_model(model)
+        if record is None:
+            raise ApiError("ICON_NOT_FOUND", f"no icon for model {model!r}",
+                           ["doodads, critters and effects have no command button"])
+        return {"total": 1, "records": [record.as_dict()]}
+    if kind and kind not in ("unit", "ability", "upgrade", "item"):
+        raise ApiError("BAD_PARAM", f"unknown kind {kind!r}",
+                       ["unit, ability, upgrade, item"])
+    records = index.by_kind(kind)
+    if filter:
+        needle = filter.lower()
+        records = [record for record in records
+                   if needle in record.id.lower() or needle in record.name.lower()]
+    return {"total": len(records),
+            "records": [record.as_dict() for record in records[: int(limit)]]}
+
+
+@operation("icon.export", "Write icons as PNG plus an icons.json index",
+           {"out": {"type": "string", "required": True},
+            "kinds": {"type": "array", "default": ["unit", "ability", "upgrade", "item"]},
+            "limit": {"type": "integer", "default": 0}},
+           "written, icons, bytes, index")
+def _icon_export(api, out="", kinds=None, limit=0, **_):
+    from .icons import export
+    session = _session(api)
+    return export(api.icons(), session.resources, Path(out),
+                  kinds=kinds, limit=int(limit))
+
+
 @operation("audio.list", "Inventory of the game's audio",
            {"category": {"type": "string", "default": "",
                          "enum": ["", "music", "ambient", "dialogue", "abilities",
@@ -504,6 +543,7 @@ class Api:
         self._tables = None
         self._ui = None
         self._units = None
+        self._icons = None
 
     def tables_db(self):
         """Shared TableDatabase: loading 213 tables costs ~1.5 s, so keep it."""
@@ -523,6 +563,13 @@ class Api:
         if self._units is None:
             self._units = self.tables_db().units()
         return self._units
+
+    def icons(self):
+        """Unit/ability/upgrade/item icons joined with their models."""
+        if self._icons is None:
+            from .icons import build_index
+            self._icons = build_index(_session(self).game, self.tables_db())
+        return self._icons
 
     def call(self, request: dict) -> dict:
         op_name = (request or {}).get("op", "")
