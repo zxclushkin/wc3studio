@@ -498,7 +498,259 @@ def cmd_gui(args) -> int:
     except ImportError as exc:  # pragma: no cover
         print(f"error: the GUI needs tkinter ({exc})", file=sys.stderr)
         return 2
-    run(game_dir=args.game, model=args.model, sequence=args.sequence)
+    run(game_dir=args.game, model=args.model, sequence=args.sequence, tab=args.tab)
+    return 0
+
+
+# --------------------------------------------------------------------------- data tables
+
+def _render_table(columns, rows, max_width: int = 26, limit: int = 0) -> str:
+    """Plain-text table that survives Russian text and long cells."""
+    rows = rows[:limit] if limit else rows
+
+    def clip(text) -> str:
+        text = str(text).replace("\n", " ")
+        return text if len(text) <= max_width else text[: max_width - 1] + "…"
+
+    header = [clip(column) for column in columns]
+    body = [[clip(cell) for cell in row] for row in rows]
+    widths = [max([len(header[i])] + [len(row[i]) for row in body]) for i in range(len(header))]
+    lines = ["  " + "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(header))]
+    lines.append("  " + "  ".join("-" * width for width in widths))
+    for row in body:
+        lines.append("  " + "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)))
+    return "\n".join(lines)
+
+
+def cmd_tables(args) -> int:
+    from .tables import TableDatabase
+    session = _open(args)
+    db = TableDatabase(session.game)
+    summary = db.tables_summary()
+    if args.filter:
+        needle = args.filter.lower()
+        summary = [item for item in summary if needle in item[0].lower()]
+    summary.sort(key=lambda item: item[0].lower())
+    if args.limit:
+        summary = summary[: args.limit]
+    print(f"{'kind':<5}{'rows':>7}{'cols':>6}  table")
+    for name, kind, rows, columns in summary:
+        print(f"{kind:<5}{rows:>7}{columns:>6}  {name}")
+    print(f"\n{len(summary)} tables")
+    return 0
+
+
+def cmd_table(args) -> int:
+    from .tables import TableDatabase
+    session = _open(args)
+    db = TableDatabase(session.game)
+    try:
+        resolved = db._match_table_name(args.name)
+    except (FileNotFoundError, LookupError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    table = db.load(resolved)
+    print(f"{resolved}: {table.row_count} rows x {table.column_count} columns ({table.kind})",
+          file=sys.stderr)
+
+    for condition in args.where or []:
+        if "=" not in condition:
+            print(f"error: --where needs column=value, got {condition!r}", file=sys.stderr)
+            return 2
+        column, value = condition.split("=", 1)
+        try:
+            table = table.where(**{column.strip(): value.strip()})
+        except KeyError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+    if args.columns:
+        try:
+            table = table.select([name.strip() for name in args.columns.split(",")])
+        except KeyError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+
+    if args.format == "csv":
+        payload = table.to_csv()
+    elif args.format == "json":
+        payload = table.to_json()
+    else:
+        print(_render_table(table.columns, table.rows, limit=args.limit))
+        return 0
+
+    if args.out:
+        path = Path(args.out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(payload, encoding="utf-8")
+        print(f"written {path.resolve()} ({len(payload):,} bytes)", file=sys.stderr)
+    else:
+        sys.stdout.write(payload)
+    return 0
+
+
+def cmd_units(args) -> int:
+    from .tables import TableDatabase
+    session = _open(args)
+    db = TableDatabase(session.game)
+    table = db.units()
+    if args.filter:
+        needle = args.filter.lower()
+
+        def keep(row, _record):
+            return any(needle in str(cell).lower() for cell in row)
+
+        table = table.filter(keep)
+    if args.columns:
+        table = table.select([name.strip() for name in args.columns.split(",")])
+    else:
+        table = table.select([name for name in ("id", "name", "race", "level", "hp", "armor",
+                                                "damage", "dps", "gold", "lumber", "food",
+                                                "buildtime", "move_type")
+                              if name in table.columns])
+    if args.out:
+        path = Path(args.out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(table.to_csv(), encoding="utf-8")
+        print(f"written {path.resolve()} ({table.row_count} rows)")
+        return 0
+    print(f"{table.row_count} units")
+    print(_render_table(table.columns, table.rows, max_width=18, limit=args.limit))
+    return 0
+
+
+def cmd_strings(args) -> int:
+    import csv as _csv
+    from .tables import TableDatabase
+    from .ui import UiLibrary
+    session = _open(args)
+    rows = []
+    if args.kind in ("ui", "all"):
+        for key, value in sorted(UiLibrary(session.game).strings().items()):
+            rows.append(["ui", key, value])
+    if args.kind in ("unit", "all"):
+        for unit_id, record in sorted(TableDatabase(session.game).strings.items()):
+            for key in ("Name", "Ubertip", "Hotkey", "Propernames"):
+                value = record.get(key)
+                if value:
+                    rows.append(["unit", f"{unit_id}.{key}", value])
+    if args.search:
+        needle = args.search.lower()
+        rows = [row for row in rows if needle in row[1].lower() or needle in row[2].lower()]
+    if args.limit:
+        rows = rows[: args.limit]
+    if args.out:
+        path = Path(args.out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w", encoding="utf-8", newline="") as handle:
+            writer = _csv.writer(handle)
+            writer.writerow(["kind", "key", "value"])
+            writer.writerows(rows)
+        print(f"written {path.resolve()} ({len(rows)} strings)")
+        return 0
+    print(_render_table(["kind", "key", "value"], rows, max_width=60, limit=args.limit or 40))
+    print(f"\n{len(rows)} strings")
+    return 0
+
+
+# --------------------------------------------------------------------------- interface
+
+def cmd_ui(args) -> int:
+    from .ui import UiLibrary
+    session = _open(args)
+    lib = UiLibrary(session.game)
+    if args.frames:
+        frames = lib.frames(args.filter, limit=args.limit)
+        print(_render_table(["kind", "name", "source"],
+                            [[frame.kind, frame.name, frame.source] for frame in frames],
+                            max_width=44))
+        print(f"\n{len(frames)} frames (of {len(lib.index())} unique names)")
+        return 0
+    rows = []
+    for path in lib.documents(args.filter):
+        try:
+            document = lib.load(path)
+        except FileNotFoundError:
+            continue
+        rows.append([path, len(document.all_frames()), len(document.includes),
+                     len(document.strings)])
+    rows.sort(key=lambda row: row[0].lower())
+    if args.limit:
+        rows = rows[: args.limit]
+    print(_render_table(["fdf document", "frames", "includes", "strings"], rows, max_width=52))
+    print(f"\n{len(lib.documents())} documents, {len(lib.index())} unique frame names, "
+          f"{len(lib.strings())} localised strings")
+    return 0
+
+
+def cmd_ui_frame(args) -> int:
+    from .ui import UiLibrary
+    session = _open(args)
+    lib = UiLibrary(session.game)
+    for name in args.name:
+        try:
+            details = lib.resolve(name)
+        except KeyError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(f"\n=== {details['name']}  ({details['kind']})")
+        print(f"  source   : {details['source']}")
+        print(f"  inherits : {' <- '.join(details['chain'])}")
+        print(f"  textures : {len(details['textures'])} paths, "
+              f"{len(details['decorated'])} decorated names")
+        for reference, resolved in details["textures"]:
+            if resolved:
+                print(f"      ok  {reference}")
+            else:
+                print(f"      ??  {reference}   (not in this install)")
+        if details["decorated"]:
+            shown = ", ".join(details["decorated"][:6])
+            print(f"      decorated: {shown}")
+        print(f"  properties ({len(details['properties'])}):")
+        for key, value in details["properties"].items():
+            origin = details["origin"].get(key, "")
+            mark = f"  (from {origin})" if origin and origin.lower() != details["name"].lower() else ""
+            print(f"      {key} = {value}{mark}")
+    return 0
+
+
+def cmd_ui_textures(args) -> int:
+    from .ui import UiLibrary
+    session = _open(args)
+    items = UiLibrary(session.game).assets(args.filter)
+    rows = [[item["path"], f"{item['size'] / 1024:.1f}"] for item in items[: args.limit]]
+    print(_render_table(["ui image", "KiB"], rows, max_width=64))
+    print(f"\n{len(items)} images, {sum(item['size'] for item in items) / 1048576:.1f} MiB")
+    return 0
+
+
+def cmd_ui_assets(args) -> int:
+    from .ui import UiLibrary, build_contact_sheet
+    session = _open(args)
+    lib = UiLibrary(session.game)
+    out = Path(args.out)
+    result = lib.dump_assets(session.resources, out, needle=args.filter, limit=args.limit)
+    print(f"converted {result['written']} of {result['count']} UI images "
+          f"({result['bytes'] / 1048576:.1f} MiB) -> {out.resolve()}")
+    if result["failed"]:
+        print(f"failed: {result['failed']}")
+
+    if args.sheet:
+        items = lib.assets(args.filter)
+        if args.limit:
+            items = items[: args.limit]
+        images, labels = [], []
+        for item in items[: args.sheet_tiles]:
+            image = session.resources.image(item["path"])
+            if image is not None:
+                images.append(image)
+                labels.append(item["name"])
+        sheet = build_contact_sheet(images, labels, tile=args.tile, columns=args.columns)
+        sheet_path = Path(args.sheet)
+        sheet_path.parent.mkdir(parents=True, exist_ok=True)
+        sheet.save(sheet_path)
+        print(f"contact sheet -> {sheet_path.resolve()} "
+              f"({sheet.width}x{sheet.height}, {len(images)} tiles)")
     return 0
 
 
@@ -602,10 +854,74 @@ def build_parser() -> argparse.ArgumentParser:
     p = subparsers.add_parser("doctor", help="check the environment and find the game")
     p.set_defaults(func=cmd_doctor)
 
+    # -- data tables ------------------------------------------------------
+    p = subparsers.add_parser("tables", help="list the game's data tables (SLK/TXT)")
+    add_game(p)
+    p.add_argument("--filter", help="only names containing this")
+    p.add_argument("--limit", type=int, default=0)
+    p.set_defaults(func=cmd_tables)
+
+    p = subparsers.add_parser("table", help="print or export one data table")
+    add_game(p)
+    p.add_argument("name", help="table name or path, e.g. UnitBalance or Units\\UnitData.slk")
+    p.add_argument("--columns", help="comma separated subset of columns")
+    p.add_argument("--where", action="append", help="column=value filter (repeatable)")
+    p.add_argument("--limit", type=int, default=40)
+    p.add_argument("--format", default="table", choices=["table", "csv", "json"])
+    p.add_argument("--out", help="write the CSV/JSON here instead of stdout")
+    p.set_defaults(func=cmd_table)
+
+    p = subparsers.add_parser("units", help="joined unit database with localised names")
+    add_game(p)
+    p.add_argument("--filter", help="substring to match in any cell")
+    p.add_argument("--columns", help="comma separated subset of columns")
+    p.add_argument("--limit", type=int, default=40)
+    p.add_argument("--out", help="write the whole table as CSV")
+    p.set_defaults(func=cmd_units)
+
+    p = subparsers.add_parser("strings", help="localised text: UI labels and unit names")
+    add_game(p)
+    p.add_argument("--kind", default="all", choices=["ui", "unit", "all"])
+    p.add_argument("--search", help="only strings containing this")
+    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--out", help="write everything as CSV")
+    p.set_defaults(func=cmd_strings)
+
+    # -- interface --------------------------------------------------------
+    p = subparsers.add_parser("ui", help="list FDF interface documents or frames")
+    add_game(p)
+    p.add_argument("--filter", help="only paths/names containing this")
+    p.add_argument("--frames", action="store_true", help="list frame names instead of documents")
+    p.add_argument("--limit", type=int, default=0)
+    p.set_defaults(func=cmd_ui)
+
+    p = subparsers.add_parser("ui-frame", help="properties of a frame, including inherited ones")
+    add_game(p)
+    p.add_argument("name", nargs="+", help="frame name, e.g. StandardHeavyBackdropTemplate")
+    p.set_defaults(func=cmd_ui_frame)
+
+    p = subparsers.add_parser("ui-textures", help="list the interface artwork")
+    add_game(p)
+    p.add_argument("--filter", help="only paths containing this")
+    p.add_argument("--limit", type=int, default=60)
+    p.set_defaults(func=cmd_ui_textures)
+
+    p = subparsers.add_parser("ui-assets", help="convert interface artwork to PNG (+ contact sheet)")
+    add_game(p)
+    p.add_argument("--out", required=True)
+    p.add_argument("--filter", help="only paths containing this, e.g. Widgets or Buttons")
+    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--sheet", help="also write a contact sheet PNG here")
+    p.add_argument("--sheet-tiles", type=int, default=48)
+    p.add_argument("--tile", type=int, default=128)
+    p.add_argument("--columns", type=int, default=8)
+    p.set_defaults(func=cmd_ui_assets)
+
     p = subparsers.add_parser("gui", help="open the graphical interface")
     add_game(p)
     p.add_argument("--model", help="model to select at startup")
     p.add_argument("--sequence", help="animation to select at startup")
+    p.add_argument("--tab", help="tab to open at startup: Model, Animations, Textures, Data, UI")
     p.set_defaults(func=cmd_gui)
 
     return parser
