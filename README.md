@@ -31,7 +31,8 @@
 | **Данные** | 213 таблиц (SLK + INI) → CSV/JSON, склеенная база **812 юнитов** с русскими названиями и всеми характеристиками |
 | **Интерфейс** | 86 FDF → дерево **2239 фреймов** с наследованием шаблонов, 1214 локализованных строк, выгрузка 1561 картинки UI в PNG |
 | **Бандл** | `bundle` — всё сразу в папку и/или **zip**: OBJ, glTF с анимациями, **звуки модели**, `.mdx`, таблицы CSV, интерфейс PNG, GIF-превью, `models.json` и `manifest.json` |
-| **Для агентов** | `agent` — самодокументируемый JSON-API (18 операций, коды ошибок и подсказки для самокоррекции), `mcp` — MCP-сервер для Claude Desktop, Cursor и прочих клиентов |
+| **Для агентов** | `agent` — самодокументируемый JSON-API (20 операций, коды ошибок и подсказки для самокоррекции), `mcp` — MCP-сервер для Claude Desktop, Cursor и прочих клиентов |
+| **Иконки** | 1810 записей: юниты, способности, апгрейды, предметы → PNG; иконка + отключённый вариант (DISBTN) + связь с моделью через `unitUI.slk` |
 | **Проверка** | `validate` (индексы OBJ, ссылки на MTL, структура GLB) и `doctor` (окружение, поиск игры) |
 
 ## Установка
@@ -66,6 +67,7 @@ wc3studio tables                                  # какие есть табл
 wc3studio units --limit 10                        # база юнитов с русскими названиями
 wc3studio ui --frames --filter backdrop           # фреймы интерфейса
 wc3studio ui-assets --out out\ui --sheet out\ui.png --filter Widgets
+wc3studio icons --out out\icons --sheet out\icons.png --kind unit
 
 # всё сразу в папку и одним zip (главная команда, если нужен весь набор)
 wc3studio bundle --out wc3_assets --formats models,glb,raw,tables --zip
@@ -230,7 +232,7 @@ zip — 67 МиБ. Полный набор с звуками — примерн�
 баннеров и русских сообщений в stdout. Агенту не нужно читать `--help`.
 
 ```powershell
-wc3studio agent --capabilities                      # манифест: 18 операций, их параметры
+wc3studio agent --capabilities                      # манифест: 20 операций, их параметры
 wc3studio agent --call model.info --params '{"model": "sheep"}'
 '{"op":"units.query","filter":"hfoo"}' | wc3studio agent
 wc3studio agent --batch requests.jsonl              # JSONL: одна строка — один запрос
@@ -269,7 +271,8 @@ wc3studio mcp        # JSON-RPC по stdio: initialize, tools/list, tools/call
 следующие — единицы миллисекунд.
 
 Операции: `capabilities`, `doctor`, `assets.search`, `assets.list`, `model.info`,
-`model.animations`, `model.render`, `model.export`, `texture.export`, `tables.list`,
+`model.animations`, `model.render`, `model.export`, `texture.export`, `icons.list`,
+`icon.export`, `tables.list`,
 `tables.query`, `units.query`, `ui.documents`, `ui.frame`, `ui.strings`, `audio.list`,
 `audio.extract`, `bundle.build`.
 
@@ -288,6 +291,35 @@ wc3studio audio --extract --out out\audio --category dialogue
 
 6444 файла, 670 МиБ: юниты 3128 (314 МиБ), диалоги кампании 2383 (163 МиБ), музыка
 44 трека (96 МиБ), способности 365, эмбиент 73, интерфейс 135.
+
+## Иконки
+
+Иконки лежат в `Art` из `*Func.txt`, а модель юнита — в `Units\unitUI.slk`; модуль
+склеивает это с локализацией:
+
+```powershell
+wc3studio icons                                  # сколько чего
+wc3studio icon hfoo AHhb                         # иконка юнита и способности
+wc3studio icons --kind ability --out out\icons --sheet out\icons.png
+```
+
+```
+kind      objects  icons  models     МБ
+unit          816    458     812    3.5
+ability       665    368       0    2.7
+upgrade        55     52       0    0.4
+item          274    211     273    1.6
+total        1810    890    1085
+```
+
+* `wc3studio icon hfoo` → `BTNFootman.blp`, отключённый `DISBTNFootman.blp`,
+  модель `units\human\Footman\Footman.mdx`, позиция на кнопках `0,0`;
+* иконка по модели: `icons.list` с параметром `model` (работает для 540 моделей —
+  юнитов и предметов; у дудов и эффектов кнопки нет, и они честно возвращают пусто);
+* `--out` кладёт PNG, сохраняя структуру архивов, и пишет `icons.json` с записями
+  (id, имя, иконка, отключённая, модель, позиция кнопки).
+
+![Иконки](docs/icons.png)
 
 ## Библиотека
 
@@ -329,6 +361,7 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 | `blp.py` | декодер BLP1 (палитра и JPEG-вариант) |
 | `tables.py` | SYLK/INI, `Table`, `TableDatabase`, склейка базы юнитов, CSV/JSON |
 | `ui.py` | `parse_fdf`, дерево `Frame`, `UiLibrary` (шаблоны, строки, картинки, контактный лист) |
+| `icons.py` | иконки юнитов/способностей/апгрейдов/предметов, связь с моделями, выгрузка PNG |
 | `anim.py` | скелет, сэмплирование треков, slerp, линейный скиннинг |
 | `render.py` | программный рендер (z-buffer, текстуры, blending, скиннинг, тень) |
 | `objexport.py` | OBJ/MTL + PNG-текстуры |
@@ -378,7 +411,7 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 python -m unittest discover -s tests -v
 ```
 
-82 теста в пяти наборах:
+100 тестов в шести наборах:
 
 * **`tests/test_synthetic.py`** — модель MDX собирается прямо в памяти и проходит весь
   конвейер (парсинг → рендер → OBJ → GLB → чтение обратно). Работает без игры, поэтому
@@ -392,6 +425,9 @@ python -m unittest discover -s tests -v
   `.glb` внутри бандла действительно содержит анимации, и что 18 звуков Пехотинца лежат
   рядом с его мешом. Тест на порядок «манифест → архив» поймал настоящую ошибку:
   манифест сначала писался после архивации и не попадал в zip.
+* **`tests/test_icons.py`** — правило имён DISBTN (без игры) и реальная склейка: 1810
+  записей, иконка Пехотинца, иконка способности, поиск иконки по модели, выгрузка PNG
+  с `icons.json`.
 * **`tests/test_agent.py`** — контракт API: манифест операций, коды ошибок, подсказки
   для самокоррекции, JSON на каждый ответ, рукопожатие и вызов инструментов через
   MCP (без игры) и реальные данные через операции.
@@ -412,6 +448,7 @@ wc3studio/            пакет
   mdx.py  blp.py      парсеры форматов ассетов
   tables.py           SLK/INI: таблицы данных, база юнитов
   ui.py               FDF: дерево фреймов, строки, картинки интерфейса
+  icons.py            иконки юнитов, способностей, апгрейдов, предметов
   anim.py             скелет и скиннинг
   render.py           программный рендер
   objexport.py        OBJ/MTL
@@ -422,7 +459,7 @@ wc3studio/            пакет
   agent.py  audio.py  JSON-API для агентов, звук
   cli.py  gui.py      интерфейсы
   vendor/             StormLib.dll (x64, MIT)
-tests/                82 теста
+tests/                100 тестов
 tools/                smoke-скрипты, проверка GLB через trimesh, захват окна
 docs/                 скриншот, галерея, демо-анимация, картинка интерфейса
 .github/workflows/    CI

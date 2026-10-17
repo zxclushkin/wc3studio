@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-10-17
+
+Icons for units and abilities.
+
+### Added
+
+* **`wc3studio icons`** / **`wc3studio icon`** (`wc3studio/icons.py`) — the command-button
+  library joined with the objects that use it:
+  * **1810 records**: 816 units, 665 abilities, 55 upgrades, 274 items;
+  * icons come from the `Art` key of the `*Func.txt` tables, the unit's model from
+    `Units\unitUI.slk` (`file` without an extension), item models from `ItemData.slk`;
+  * names are localised (Russian in this install), and the greyed-out variant is derived
+    and verified (`CommandButtons\BTNFoo.blp` → `CommandButtonsDisabled\DISBTNFoo.blp`,
+    `PASBTN` included);
+  * `--out DIR` writes PNG keeping the archive layout plus `icons.json`, `--sheet` renders
+    a contact sheet.
+* **`icons.list` / `icon.export`** in the agent API: `icons.list` can also answer
+  "what is the icon of this model".
+* **`--formats icons`** in the bundle, and `models.json` now carries `icon` + `icon_png`
+  for every model that has one (540 of the 3225 models — units and items; doodads,
+  critters and effects have no command button, so they correctly report nothing).
+* Unit icons resolve for **812 models**; abilities for 665.
+
+### Notes
+
+* 890 unique icon files, ~8 MiB of BLP; exported PNGs are 64x64.
+* The icon index builds in 0.7 s and is cached per agent session.
+
 ## [1.4.1] - 2026-10-17
 
 Hardening the agent API after a full pass over every operation.
