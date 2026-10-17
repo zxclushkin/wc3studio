@@ -4,6 +4,40 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-10-17
+
+Bug hunt on the new window: four real defects, all found by comparing renders and by
+stating checks, all fixed with regression tests.
+
+### Fixed
+
+* **The viewport went blank whenever playback was paused.** `paintGL` read
+  `_uploaded_frame` before `__init__` created it, so the first paused frame raised
+  `AttributeError`; Qt swallows exceptions inside paintGL, so the user just saw an empty
+  canvas. The attribute (and `_white`) is now initialised up front.
+* **GL resources were rebuilt without a current context.** Opening a second model or
+  toggling "all geosets" recreated textures from a Qt slot, where the context is not
+  current: `QOpenGLTexture::setData() requires a valid current context`, the texture was
+  never created and the model rendered untextured. `_ensure_context`/`_release_context`
+  now wrap every rebuild.
+* **"Все геосеты" did not refit the camera** and kept the previous item list: with the same
+  number of visible geosets the old textures stayed bound to the new vertices. Toggling now
+  refits the camera and rebuilds the items (Town Hall: 3 -> 35 geosets).
+* **GPU textures leaked when switching models** - the cache was never cleared. It is now
+  per model: after five different models the cache holds one texture instead of eight.
+* **Models with no geometry** (`AntiMagicShell`, `feralspirittarget`, `ZombifyTarget`,
+  `AItbTarget`, `DemolisherMissile` - target effects with attachments only) opened as an
+  empty animated black canvas. The window now stops playback and says the model has no
+  geometry.
+
+### Testing
+
+* 4 new regression tests (109 total) that pin the state the bugs corrupted: initialised
+  upload state, camera refit on the geoset toggle, `has_geometry` for a target-only model,
+  and a real unit still loading with a camera.
+* A headless sweep over 40 models (every 80th) reports: 0 exceptions, 0 models without
+  textures, 5 without geometry (expected), and UVs outside 0..1 (legitimate tiling).
+
 ## [1.6.0] - 2026-10-17
 
 A GPU window, because the old one could not keep up.
