@@ -4,6 +4,35 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-10-17
+
+Sound, and everything else that belongs to a model.
+
+### Added
+
+* **`sounds` format in the bundle** — the MDX format never references audio, but the game
+  keeps a unit's voice lines next to its model (`Units\Human\Footman\FootmanYes1.wav`), so
+  a bundle now copies every `.wav`/`.mp3` from the model's folder, right next to the
+  exported mesh: Footman gets 18 files, HeroPaladin 22, the Sheep 7, a Town Hall 3.
+  Across the archives that is 444 model folders and ~2900 files.
+* **`models.json`** — a per-model index of *everything that belongs to that model*: the
+  exported files, the portrait model, referenced textures, sounds, triangle/bone/geoset
+  counts and the animation names. `--no-index` turns it off.
+* **`--formats all`** shorthand for `models,glb,raw,sounds,tables,ui`; the default is now
+  `models,glb,sounds`.
+* **GUI** — a "Звуки модели" checkbox in the Bundle dialog, and the progress bar knows
+  about the sounds and index passes.
+
+### Changed
+
+* The bundle's default formats include sounds (it used to be models + glTF only).
+
+### Notes
+
+* A Human-only trial bundle (71 models, 478 sounds, 213 tables) comes to **93 MiB in
+  35 seconds**; the sounds alone are 45 MiB of that.
+* A full run with sounds is roughly **2.2 GiB**.
+
 ## [1.2.0] - 2026-10-17
 
 Everything at once.

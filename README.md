@@ -30,7 +30,7 @@
 | **Экспорт** | **OBJ + MTL + PNG-текстуры** и **glTF 2.0 (.glb)** со скелетом и всеми анимациями |
 | **Данные** | 213 таблиц (SLK + INI) → CSV/JSON, склеенная база **812 юнитов** с русскими названиями и всеми характеристиками |
 | **Интерфейс** | 86 FDF → дерево **2239 фреймов** с наследованием шаблонов, 1214 локализованных строк, выгрузка 1561 картинки UI в PNG |
-| **Бандл** | `bundle` — всё сразу в папку и/или **zip**: OBJ, glTF с анимациями, `.mdx`, таблицы CSV, интерфейс PNG, GIF-превью, `manifest.json` |
+| **Бандл** | `bundle` — всё сразу в папку и/или **zip**: OBJ, glTF с анимациями, **звуки модели**, `.mdx`, таблицы CSV, интерфейс PNG, GIF-превью, `models.json` и `manifest.json` |
 | **Проверка** | `validate` (индексы OBJ, ссылки на MTL, структура GLB) и `doctor` (окружение, поиск игры) |
 
 ## Установка
@@ -155,26 +155,32 @@ wc3studio ui-assets --out out\ui --filter Widgets --sheet out\ui.png
 Одна команда собирает полный набор в папку и, если нужно, одним zip-архивом:
 
 ```powershell
-# всё: модели (OBJ+PNG), glTF с анимациями, исходные .mdx, таблицы CSV + zip
-wc3studio bundle --out wc3_assets --formats models,glb,raw,tables --zip
+# по умолчанию: модели + glTF с анимациями + звуки
+wc3studio bundle --out wc3_assets --zip
 
-# плюс интерфейс и короткие GIF-превью анимаций (медленнее)
-wc3studio bundle --out wc3_assets --formats models,glb,raw,tables,ui --previews --zip
+# вообще всё: модели (OBJ+PNG), glTF, звуки, исходные .mdx, таблицы CSV, интерфейс
+wc3studio bundle --out wc3_assets --formats all --zip
+
+# плюс короткие GIF-превью анимаций (медленнее)
+wc3studio bundle --out wc3_assets --formats all --previews --zip
 
 # быстрая проба: 20 моделей
 wc3studio bundle --out wc3_assets --limit 20 --filter "Units\Human" --zip
 ```
 
-Что попадает в папку:
+Что попадает в папку — всё, что относится к модели:
 
 ```
 wc3_assets/
-  Units/Human/Footman/Footman.obj  + .mtl + .gif   модели (структура как в игре)
+  Units/Human/Footman/Footman.obj + .mtl           модель
   Units/Human/Footman/Footman.glb                  glTF: скелет + все анимации
+  Units/Human/Footman/Footman_Portrait.*           портрет (отдельная модель)
+  Units/Human/Footman/FootmanYes1.wav … (18 шт)    звуки юнита
+  textures/Textures/Footman.blp.png                текстуры
   raw/Units/Human/Footman/Footman.mdx              исходники
-  textures/Textures/Footman.blp.png                общие текстуры
   tables/Units/UnitBalance.slk.csv                 таблицы данных
-  ui/UI/Widgets/....png                            интерфейс (с --formats ...,ui)
+  ui/UI/Widgets/....png                            интерфейс (с форматом ui)
+  models.json                                      индекс: что с какой модели
   manifest.json                                    что записано, сколько, ошибки
 wc3_assets.zip                                     если указан --zip
 ```
@@ -184,13 +190,36 @@ wc3_assets.zip                                     если указан --zip
 костями. Дополнительно `--previews` рендерит по короткому GIF на модель (по умолчанию
 из `Stand`), а `--sequences Stand,Walk` ограничивает набор анимаций в glTF.
 
-Сколько это весит и длится (замерено на этой машине): 71 модель Human-юнитов
-с `models,glb,raw,tables` — **56 МиБ за 27 секунд**, zip — 31 МиБ. Полный набор из
-3225 моделей — примерно **2 ГиБ и 15–20 минут**, из них больше половины — glTF
-(около 0.55 МиБ на модель, потому что внутри анимации).
+**Звуки.** MDX на звук не ссылается — игра кладёт реплики юнита в его папку
+(`Units\Human\Footman\FootmanYes1.wav`). Поэтому бандл забирает все `.wav`/`.mp3` из
+папки модели и кладёт рядом с мешом: у Пехотинца их 18, у Паладина 22, у Овцы 7,
+у Ратуши 3. Всего в архивах 444 таких папки и около 2900 файлов. WAV копируются как
+есть — это оригиналы из MPQ, без пережатия.
 
-В GUI то же самое: вкладка **Export** → **«Bundle everything…»** — галочки форматов,
-лимит моделей, фильтр пути и прогресс-бар; работа идёт в отдельном потоке.
+**`models.json`** — индекс «всё с модели», по записи на модель:
+
+```json
+{
+ "model": "Units\\Human\\Footman\\Footman.mdx",
+ "folder": "Units/Human/Footman",
+ "portrait": "Units\\Human\\Footman\\Footman_Portrait.mdx",
+ "files": ["Footman.obj", "Footman.mtl", "Footman.glb"],
+ "textures": ["Textures\\Footman.blp", "Textures\\gutz.blp"],
+ "sounds": ["FootmanDeath.wav", "... 18 всего"],
+ "sound_count": 18,
+ "triangles": 372, "bones": 40, "geosets": 5,
+ "animations": ["Stand - 1", "Stand - 2", "Stand Victory", "..."]
+}
+```
+
+Сколько это весит и длится (замерено на этой машине): 71 модель Human-юнитов
+с `models,glb,sounds,tables` — **93 МиБ за 35 секунд** (из них 45 МиБ — 478 звуков),
+zip — 67 МиБ. Полный набор с звуками — примерно **2.2 ГиБ и 20 минут**, больше
+половины — glTF (около 0.55 МиБ на модель, потому что внутри анимации).
+
+В GUI то же самое: вкладка **Export** → **«Bundle everything…»** — галочки форматов
+(включая звуки), лимит моделей, фильтр пути и прогресс-бар; работа идёт в отдельном
+потоке.
 
 ![Bundle dialog](docs/bundle-dialog.png)
 
@@ -281,7 +310,7 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 python -m unittest discover -s tests -v
 ```
 
-62 теста в четырёх наборах:
+64 теста в четырёх наборах:
 
 * **`tests/test_synthetic.py`** — модель MDX собирается прямо в памяти и проходит весь
   конвейер (парсинг → рендер → OBJ → GLB → чтение обратно). Работает без игры, поэтому
@@ -291,9 +320,10 @@ python -m unittest discover -s tests -v
   экранированными кавычками), INI с секциями и разреженными ключами, FDF со всеми
   вариантами синтаксиса и вложенными блоками, CSV/JSON-экспорт, контактный лист.
 * **`tests/test_bundle.py`** — zip-складывание папки (без игры) и сборка бандла на реальных
-  архивах: сколько файлов получилось, куда, что в `manifest.json`, и что `.glb` внутри
-  бандла действительно содержит анимации. Тест на порядок «манифест → архив» поймал
-  настоящую ошибку: манифест сначала писался после архивации и не попадал в zip.
+  архивах: сколько файлов получилось, куда, что в `manifest.json` и `models.json`, что
+  `.glb` внутри бандла действительно содержит анимации, и что 18 звуков Пехотинца лежат
+  рядом с его мешом. Тест на порядок «манифест → архив» поймал настоящую ошибку:
+  манифест сначала писался после архивации и не попадал в zip.
 * **`tests/test_wc3studio.py`** и игровые тесты в `test_tables_ui.py` — на реальных
   архивах: 812 юнитов, ноль предупреждений на 86 FDF, локализованные строки, инвентарь
   картинок. Без установленной игры помечаются как skipped.
@@ -320,7 +350,7 @@ wc3studio/            пакет
   bundle.py           bundle: полный набор в папку/zip + manifest
   cli.py  gui.py      интерфейсы
   vendor/             StormLib.dll (x64, MIT)
-tests/                62 теста
+tests/                64 теста
 tools/                smoke-скрипты, проверка GLB через trimesh, захват окна
 docs/                 скриншот, галерея, демо-анимация, картинка интерфейса
 .github/workflows/    CI
