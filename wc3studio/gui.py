@@ -105,7 +105,7 @@ class RenderWorker(threading.Thread):
 
 class App(tk.Tk):
     def __init__(self, game_dir: str | None = None, model: str | None = None,
-                 sequence: str | None = None):
+                 sequence: str | None = None, tab: str | None = None):
         super().__init__()
         self.title("wc3studio - Warcraft III asset browser")
         self.geometry("1280x820")
@@ -114,6 +114,7 @@ class App(tk.Tk):
 
         self.initial_model = model
         self.initial_sequence = sequence
+        self.initial_tab = tab
         self.session: Session | None = None
         self.model_path: str | None = None
         self.model = None
@@ -133,6 +134,9 @@ class App(tk.Tk):
         self._busy_count = 0
 
         self.results: "queue.Queue" = queue.Queue()
+        self.panel_queue: "queue.Queue" = queue.Queue()
+        self.tables_db = None
+        self.ui_lib = None
         self.worker: RenderWorker | None = None
 
         self._build_menu()
@@ -200,7 +204,7 @@ class App(tk.Tk):
         style.map("Treeview.Item", background=[("selected", ACCENT)])
 
         style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(2, 4, 2, 0))
-        style.configure("TNotebook.Tab", background=PANEL, foreground=DIM, padding=(10, 5),
+        style.configure("TNotebook.Tab", background=PANEL, foreground=DIM, padding=(6, 4),
                         borderwidth=0)
         style.map("TNotebook.Tab",
                   background=[("selected", ACCENT)],
@@ -297,12 +301,13 @@ class App(tk.Tk):
         ttk.Checkbutton(controls, text="orbit", variable=self.orbit_var).pack(side="left", padx=(8, 0))
 
         # --- right: tabs
-        right = ttk.Frame(outer, width=320)
+        right = ttk.Frame(outer, width=404)
         right.pack(side="right", fill="y")
         right.pack_propagate(False)
 
         notebook = ttk.Notebook(right)
         notebook.pack(fill="both", expand=True)
+        self.notebook = notebook
 
         self.info_text = tk.Text(notebook, bg=PANEL, fg=FG, bd=0, wrap="word",
                                  font=("Consolas", 9), height=20)
@@ -312,7 +317,7 @@ class App(tk.Tk):
         self.sequence_list = tk.Listbox(notebook, bg=PANEL, fg=FG, bd=0,
                                         selectbackground=ACCENT, highlightthickness=0)
         self.sequence_list.bind("<Double-Button-1>", lambda _e: self._play_selected_sequence())
-        notebook.add(self.sequence_list, text="Animations")
+        notebook.add(self.sequence_list, text="Anims")
 
         texture_frame = ttk.Frame(notebook)
         self.texture_list = tk.Listbox(texture_frame, bg=PANEL, fg=FG, bd=0, height=8,
@@ -331,10 +336,60 @@ class App(tk.Tk):
         ttk.Label(export_frame, text="GIF uses the selected animation;\npick \"<all animations>\" for a playlist.",
                   style="Dim.TLabel", justify="left").pack(anchor="w", pady=(10, 0))
 
+        # --- data tables tab
+        data_frame = ttk.Frame(notebook)
+        notebook.add(data_frame, text="Data")
+        self.data_filter = tk.StringVar()
+        data_entry = ttk.Entry(data_frame, textvariable=self.data_filter)
+        data_entry.pack(fill="x", pady=(0, 4))
+        data_entry.bind("<KeyRelease>", lambda _e: self._filter_tables())
+        self.table_tree = ttk.Treeview(data_frame, columns=("kind", "rows"), show="tree headings",
+                                       selectmode="browse", height=12)
+        self.table_tree.heading("#0", text="table")
+        self.table_tree.heading("kind", text="kind")
+        self.table_tree.heading("rows", text="rows")
+        self.table_tree.column("#0", width=200, anchor="w")
+        self.table_tree.column("kind", width=44, anchor="w")
+        self.table_tree.column("rows", width=48, anchor="e")
+        self.table_tree.pack(fill="both", expand=True)
+        self.table_tree.bind("<Double-Button-1>", lambda _e: self._open_table())
+        ttk.Button(data_frame, text="Open table", command=self._open_table).pack(fill="x", pady=(4, 2))
+        ttk.Button(data_frame, text="Export all tables…", command=self._export_tables).pack(fill="x")
+        ttk.Label(data_frame, text="212 gameplay tables: units, abilities,\nitems, doodads, sounds. Double-click to open.",
+                  style="Dim.TLabel", justify="left").pack(anchor="w", pady=(8, 0))
+
+        # --- interface tab
+        ui_frame = ttk.Frame(notebook)
+        notebook.add(ui_frame, text="UI")
+        self.ui_tree = ttk.Treeview(ui_frame, columns=("frames",), show="tree headings",
+                                    selectmode="browse", height=10)
+        self.ui_tree.heading("#0", text="fdf document")
+        self.ui_tree.heading("frames", text="fr")
+        self.ui_tree.column("#0", width=210)
+        self.ui_tree.column("frames", width=40, anchor="e")
+        self.ui_tree.pack(fill="both", expand=True)
+        self.ui_tree.bind("<<TreeviewSelect>>", self._ui_select)
+        ui_buttons = ttk.Frame(ui_frame)
+        ui_buttons.pack(fill="x", pady=(4, 2))
+        ttk.Button(ui_buttons, text="Frames…", command=self._open_frame_browser).pack(side="left", expand=True, fill="x")
+        ttk.Button(ui_buttons, text="Dump art…", command=self._dump_ui_art).pack(side="left", expand=True, fill="x")
+        ttk.Button(ui_buttons, text="Sheet…", command=self._ui_sheet).pack(side="left", expand=True, fill="x")
+        self.ui_details = tk.Text(ui_frame, bg=PANEL, fg=FG, bd=0, wrap="word",
+                                  font=("Consolas", 9), height=8)
+        self.ui_details.configure(state="disabled")
+        self.ui_details.pack(fill="both", expand=True, pady=(4, 0))
+
         # --- status bar
         self.status_var = tk.StringVar(value="starting...")
         status = ttk.Label(self, textvariable=self.status_var, style="Dim.TLabel")
         status.pack(fill="x", padx=10, pady=(0, 6))
+
+        if self.initial_tab:
+            wanted = self.initial_tab.strip().lower()
+            for index, tab_id in enumerate(self.notebook.tabs()):
+                if self.notebook.tab(tab_id, "text").strip().lower() == wanted:
+                    self.notebook.select(index)
+                    break
 
     # -- session ----------------------------------------------------------
     def _open_game(self, game_dir=None):
@@ -358,8 +413,297 @@ class App(tk.Tk):
         self.title(f"wc3studio - {session.root}")
         self._folder_tree = self._build_folder_tree(session.models())
         self._populate_tree()
+        self._start_panel_loaders()
         if self.initial_model:
             self.after(120, self._open_initial_model)
+
+    # -- data / UI panels -------------------------------------------------
+    def _start_panel_loaders(self):
+        """Load the data tables and FDF documents off the UI thread."""
+        threading.Thread(target=self._load_tables, daemon=True).start()
+        threading.Thread(target=self._load_ui, daemon=True).start()
+
+    def _load_tables(self):
+        try:
+            from .tables import TableDatabase
+            database = TableDatabase(self.session.game)
+            summary = database.tables_summary()
+            self.tables_db = database
+            self.panel_queue.put(("tables", summary))
+        except Exception as exc:  # noqa: BLE001
+            self.panel_queue.put(("status", f"data tables failed: {exc}"))
+
+    def _load_ui(self):
+        try:
+            from .ui import UiLibrary
+            library = UiLibrary(self.session.game)
+            documents = []
+            for path in library.documents():
+                try:
+                    documents.append((path, len(library.load(path).all_frames())))
+                except FileNotFoundError:
+                    continue
+            self.ui_lib = library
+            self.panel_queue.put(("ui_docs", documents))
+        except Exception as exc:  # noqa: BLE001
+            self.panel_queue.put(("status", f"interface files failed: {exc}"))
+
+    def _filter_tables(self):
+        needle = self.data_filter.get().strip().lower()
+
+        def base_first(item):
+            """Base game tables before the Custom_V0/Custom_V1/Melee_V0 copies."""
+            name = item[0].lower()
+            return (name.startswith(("custom_v", "melee_v")), name)
+
+        self.table_tree.delete(*self.table_tree.get_children())
+        for name, kind, rows, _columns in sorted(getattr(self, "_table_rows", []), key=base_first):
+            if needle and needle not in name.lower():
+                continue
+            self.table_tree.insert("", "end", iid=name, values=(kind, rows), text=name)
+
+    def _open_table(self):
+        selection = self.table_tree.selection()
+        if not selection or self.tables_db is None:
+            return
+        name = selection[0]
+        self.status_var.set(f"loading table {name}…")
+
+        def work():
+            try:
+                self.panel_queue.put(("table_data", name, self.tables_db.load(name)))
+            except Exception as exc:  # noqa: BLE001
+                self.panel_queue.put(("status", f"table failed: {exc}"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _show_table_window(self, name: str, table):
+        window = tk.Toplevel(self)
+        window.title(f"{name}  -  {table.row_count} rows x {table.column_count} columns")
+        window.geometry("1000x620")
+        window.configure(bg=BG)
+
+        top = ttk.Frame(window)
+        top.pack(fill="x", padx=8, pady=6)
+        ttk.Label(top, text="filter").pack(side="left")
+        query = tk.StringVar()
+        entry = ttk.Entry(top, textvariable=query)
+        entry.pack(side="left", fill="x", expand=True, padx=6)
+        counter = tk.StringVar()
+        ttk.Label(top, textvariable=counter, style="Dim.TLabel").pack(side="left")
+
+        columns = table.columns
+        frame = ttk.Frame(window)
+        frame.pack(fill="both", expand=True, padx=8, pady=(0, 6))
+        tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="browse")
+        for column in columns:
+            tree.heading(column, text=column)
+            tree.column(column, width=110, stretch=False, anchor="w")
+        y_scroll = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        x_scroll = ttk.Scrollbar(frame, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+        tree.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+        frame.rowconfigure(0, weight=1)
+        frame.columnconfigure(0, weight=1)
+
+        state = {"rows": table.rows}
+
+        def populate(rows):
+            tree.delete(*tree.get_children())
+            for row in rows[:4000]:
+                tree.insert("", "end", values=list(row))
+            counter.set(f"{len(rows)} of {table.row_count} rows")
+
+        def apply_filter(_event=None):
+            needle = query.get().strip().lower()
+            if not needle:
+                populate(state["rows"])
+                return
+            populate([row for row in state["rows"]
+                      if any(needle in str(cell).lower() for cell in row)])
+
+        entry.bind("<KeyRelease>", apply_filter)
+        populate(table.rows)
+
+        buttons = ttk.Frame(window)
+        buttons.pack(fill="x", padx=8, pady=(0, 8))
+        ttk.Button(buttons, text="Export CSV…",
+                   command=lambda: self._export_table_csv(name, table)).pack(side="left")
+        ttk.Button(buttons, text="Close", command=window.destroy).pack(side="right")
+        self.status_var.set(f"{name}: {table.row_count} rows, {table.column_count} columns")
+
+    def _export_table_csv(self, name: str, table):
+        path = filedialog.asksaveasfilename(title="Save table as CSV", defaultextension=".csv",
+                                            initialfile=name.replace("\\", "_").rsplit(".", 1)[0] + ".csv",
+                                            filetypes=[("CSV", "*.csv")])
+        if not path:
+            return
+        try:
+            table.write(path, "csv")
+            self.status_var.set(f"saved {path}")
+        except OSError as exc:
+            messagebox.showerror("wc3studio", f"Could not write {path}\n\n{exc}")
+
+    def _export_tables(self):
+        if self.tables_db is None:
+            messagebox.showinfo("wc3studio", "Tables are still loading.")
+            return
+        folder = filedialog.askdirectory(title="Folder for the CSV export")
+        if not folder:
+            return
+        self.status_var.set("exporting tables…")
+
+        def work():
+            from pathlib import Path
+            written = failed = 0
+            for internal, _kind, _rows, _columns in self.tables_db.tables_summary():
+                try:
+                    table = self.tables_db.load(internal)
+                    target = Path(folder) / (internal.replace("\\", "/") + ".csv")
+                    table.write(target, "csv")
+                    written += 1
+                except (OSError, ValueError):
+                    failed += 1
+            self.panel_queue.put(("status", f"tables exported: {written} files, {failed} failed"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ui_select(self, _event=None):
+        selection = self.ui_tree.selection()
+        if not selection or self.ui_lib is None:
+            return
+        path = selection[0]
+        try:
+            document = self.ui_lib.load(path)
+        except FileNotFoundError:
+            return
+        lines = [path, f"frames: {len(document.all_frames())}",
+                 f"includes: {len(document.includes)}", f"strings: {len(document.strings)}", ""]
+        for include in document.includes[:6]:
+            lines.append(f"  include {include}")
+        if document.includes:
+            lines.append("")
+        for frame in document.all_frames()[:25]:
+            lines.append(f"  {frame.kind:<14} {frame.name}")
+        if len(document.all_frames()) > 25:
+            lines.append(f"  … {len(document.all_frames()) - 25} more")
+        self.ui_details.configure(state="normal")
+        self.ui_details.delete("1.0", "end")
+        self.ui_details.insert("1.0", "\n".join(lines))
+        self.ui_details.configure(state="disabled")
+
+    def _open_frame_browser(self):
+        if self.ui_lib is None:
+            messagebox.showinfo("wc3studio", "Interface files are still loading.")
+            return
+        window = tk.Toplevel(self)
+        window.title("UI frames")
+        window.geometry("900x560")
+        window.configure(bg=BG)
+        top = ttk.Frame(window)
+        top.pack(fill="x", padx=8, pady=6)
+        ttk.Label(top, text="search").pack(side="left")
+        query = tk.StringVar()
+        ttk.Entry(top, textvariable=query).pack(side="left", fill="x", expand=True, padx=6)
+
+        panes = ttk.Frame(window)
+        panes.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        tree = ttk.Treeview(panes, columns=("kind", "source"), show="tree headings")
+        tree.heading("#0", text="frame")
+        tree.heading("kind", text="kind")
+        tree.heading("source", text="source")
+        tree.column("#0", width=250)
+        tree.column("kind", width=110)
+        tree.column("source", width=330)
+        tree.pack(side="left", fill="both", expand=True)
+        details = tk.Text(panes, bg=PANEL, fg=FG, bd=0, width=46, wrap="word",
+                          font=("Consolas", 9))
+        details.pack(side="right", fill="y")
+
+        frames = self.ui_lib.frames()
+
+        def populate():
+            needle = query.get().strip().lower()
+            tree.delete(*tree.get_children())
+            for frame in frames:
+                if needle and needle not in frame.name.lower() and needle not in frame.kind.lower():
+                    continue
+                tree.insert("", "end", iid=frame.name, text=frame.name,
+                            values=(frame.kind, frame.source))
+
+        def show(_event=None):
+            selection = tree.selection()
+            if not selection:
+                return
+            try:
+                data = self.ui_lib.resolve(selection[0])
+            except KeyError:
+                return
+            lines = [f"{data['name']}  ({data['kind']})", f"source: {data['source']}",
+                     f"inherits: {' <- '.join(data['chain'])}", "",
+                     f"textures ({len(data['textures'])}):"]
+            for reference, resolved in data["textures"]:
+                lines.append(f"  {'ok' if resolved else '??'} {reference}")
+            if data["decorated"]:
+                lines.append(f"decorated: {', '.join(data['decorated'][:6])}")
+            lines += ["", "properties:"]
+            for key, value in data["properties"].items():
+                lines.append(f"  {key} = {value}")
+            details.configure(state="normal")
+            details.delete("1.0", "end")
+            details.insert("1.0", "\n".join(lines))
+            details.configure(state="disabled")
+
+        query.trace_add("write", lambda *_: populate())
+        tree.bind("<<TreeviewSelect>>", show)
+        populate()
+
+    def _dump_ui_art(self):
+        if self.ui_lib is None:
+            messagebox.showinfo("wc3studio", "Interface files are still loading.")
+            return
+        folder = filedialog.askdirectory(title="Folder for the UI artwork (PNG)")
+        if not folder:
+            return
+        self.status_var.set("converting UI artwork…")
+
+        def work():
+            result = self.ui_lib.dump_assets(self.session.resources, folder)
+            self.panel_queue.put(("status", f"UI artwork: {result['written']} PNG, "
+                                            f"{result['bytes'] / 1048576:.1f} MiB -> {folder}"))
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _ui_sheet(self):
+        if self.ui_lib is None:
+            messagebox.showinfo("wc3studio", "Interface files are still loading.")
+            return
+        path = filedialog.asksaveasfilename(title="Save UI contact sheet", defaultextension=".png",
+                                            initialfile="ui_sheet.png",
+                                            filetypes=[("PNG", "*.png")])
+        if not path:
+            return
+        self.status_var.set("building UI contact sheet…")
+
+        def work():
+            from .ui import build_contact_sheet
+            items = self.ui_lib.assets()
+            images, labels = [], []
+            for item in items[:96]:
+                image = self.session.resources.image(item["path"])
+                if image is not None:
+                    images.append(image)
+                    labels.append(item["name"])
+            if not images:
+                self.panel_queue.put(("status", "no UI images found"))
+                return
+            sheet = build_contact_sheet(images, labels, tile=120, columns=12)
+            sheet.save(path)
+            self.panel_queue.put(("status", f"contact sheet -> {path} ({len(images)} tiles)"))
+
+        threading.Thread(target=work, daemon=True).start()
 
     def _open_initial_model(self):
         try:
@@ -581,7 +925,29 @@ class App(tk.Tk):
                 self._request_still(debounce=True)
         if self.playing:
             self._tick_playback()
+        self._drain_panels()
         self.after(25, self._poll)
+
+    def _drain_panels(self):
+        """Results from the data-table and interface loaders."""
+        try:
+            while True:
+                message = self.panel_queue.get_nowait()
+                kind = message[0]
+                if kind == "tables":
+                    self._table_rows = message[1]
+                    self._filter_tables()
+                    self.status_var.set(f"data tables loaded: {len(self._table_rows)}")
+                elif kind == "ui_docs":
+                    for path, frames in message[1]:
+                        self.ui_tree.insert("", "end", iid=path, text=path, values=(frames,))
+                    self.status_var.set(f"interface documents loaded: {len(message[1])}")
+                elif kind == "table_data":
+                    self._show_table_window(message[1], message[2])
+                elif kind == "status":
+                    self.status_var.set(message[1])
+        except queue.Empty:
+            return
 
     def _tick_playback(self):
         if not self._frame_buffer:
@@ -786,8 +1152,8 @@ class App(tk.Tk):
 
 
 def run(game_dir: str | None = None, model: str | None = None,
-        sequence: str | None = None) -> int:
-    app = App(game_dir, model, sequence)
+        sequence: str | None = None, tab: str | None = None) -> int:
+    app = App(game_dir, model, sequence, tab)
     app.protocol("WM_DELETE_WINDOW", app._on_close)
     app.mainloop()
     return 0
