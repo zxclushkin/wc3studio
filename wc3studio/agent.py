@@ -60,6 +60,22 @@ def operation(name: str, description: str, params: dict | None = None, returns: 
 
 # --------------------------------------------------------------------------- helpers
 
+KINDS = ("model", "texture", "audio", "map", "ui", "table")
+_SUFFIXES = {"model": (".mdx", ".mdl"), "texture": (".blp", ".tga"),
+             "audio": (".wav", ".mp3"), "map": (".w3x", ".w3m", ".w3n"),
+             "ui": (".fdf",), "table": (".slk", ".txt")}
+
+
+def _check_kinds(kinds) -> list[str]:
+    if isinstance(kinds, str):
+        kinds = [kinds]
+    bad = [kind for kind in kinds if kind not in KINDS]
+    if bad:
+        raise ApiError("BAD_PARAM", f"unknown kind(s): {', '.join(bad)}",
+                       [f"kinds: {', '.join(KINDS)}"])
+    return list(kinds)
+
+
 def _session(api: "Api"):
     if api.session is None:
         from .pipeline import Session
@@ -120,14 +136,11 @@ def _doctor(api, **_):
             "limit": {"type": "integer", "default": 20}},
            "matches[{kind, path, size}]")
 def _assets_search(api, query="", kinds=None, limit=20, **_):
+    kinds = _check_kinds(kinds or ["model"])   # validate before opening the archives
     session = _session(api)
-    kinds = kinds or ["model"]
-    suffixes = {"model": (".mdx", ".mdl"), "texture": (".blp", ".tga"),
-                "audio": (".wav", ".mp3"), "map": (".w3x", ".w3m", ".w3n"),
-                "ui": (".fdf",), "table": (".slk", ".txt")}
     wanted = []
     for kind in kinds:
-        wanted.extend(suffixes.get(kind, ()))
+        wanted.extend(_SUFFIXES[kind])
     needle = (query or "").lower()
     matches = []
     for name in session.names():
@@ -143,38 +156,47 @@ def _assets_search(api, query="", kinds=None, limit=20, **_):
 
 
 def _kind_of(lower: str) -> str:
-    if lower.endswith((".mdx", ".mdl")):
-        return "model"
-    if lower.endswith((".blp", ".tga")):
-        return "texture"
-    if lower.endswith((".wav", ".mp3")):
-        return "audio"
-    if lower.endswith((".w3x", ".w3m", ".w3n")):
-        return "map"
-    if lower.endswith(".fdf"):
-        return "ui"
-    if lower.endswith((".slk", ".txt")):
-        return "table"
+    for kind, suffixes in _SUFFIXES.items():
+        if lower.endswith(suffixes):
+            return kind
     return "other"
 
 
 @operation("assets.list", "List assets of one kind",
-           {"kind": {"type": "string", "default": "model",
-                     "enum": ["model", "texture", "audio", "map", "ui", "table"]},
+           {"kind": {"type": "string", "default": "model", "enum": list(KINDS)},
             "filter": {"type": "string", "default": ""},
             "limit": {"type": "integer", "default": 50}},
            "items[{path, size}], total")
 def _assets_list(api, kind="model", filter="", limit=50, **_):
+    wanted = _SUFFIXES[_check_kinds([kind])[0]]   # validate before opening the archives
     session = _session(api)
-    suffixes = {"model": (".mdx", ".mdl"), "texture": (".blp", ".tga"),
-                "audio": (".wav", ".mp3"), "map": (".w3x", ".w3m", ".w3n"),
-                "ui": (".fdf",), "table": (".slk", ".txt")}
-    wanted = suffixes.get(kind, ())
     needle = (filter or "").lower()
     items = [{"path": name, "size": session.size(name)}
              for name in session.names()
              if name.lower().endswith(wanted) and (not needle or needle in name.lower())]
     return {"kind": kind, "total": len(items), "items": items[: int(limit)]}
+
+
+@operation("texture.export", "Convert a texture (BLP/TGA) to PNG",
+           {"path": {"type": "string", "required": True},
+            "out": {"type": "string", "required": True},
+            "size": {"type": "integer", "default": 0}},
+           "path, out, width, height, bytes")
+def _texture_export(api, path="", out="", size=0, **_):
+    session = _session(api)
+    image = session.resources.image(path)
+    if image is None:
+        raise ApiError("TEXTURE_NOT_FOUND", f"could not read {path!r}",
+                       ["call assets.list kind=texture to see the paths",
+                        "some textures are 'replaceable' team-colour slots without a file"])
+    if int(size) > 0 and image.width != int(size):
+        height = max(1, round(image.height * int(size) / image.width))
+        image = image.resize((int(size), height))
+    target = Path(out)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    image.save(target)
+    return {"path": path, "out": str(target), "width": image.width,
+            "height": image.height, "bytes": target.stat().st_size}
 
 
 @operation("model.info", "Everything about one model: geosets, materials, bones, sequences, bounds",
@@ -293,9 +315,7 @@ def _model_export(api, model="", out="", format="glb", sequences=None, **_):
                                                                    "default": 50}},
            "tables[{name, kind, rows, columns}], total")
 def _tables_list(api, filter="", limit=50, **_):
-    from .tables import TableDatabase
-    session = _session(api)
-    database = TableDatabase(session.game)
+    database = api.tables_db()
     rows = database.tables_summary()
     needle = (filter or "").lower()
     if needle:
@@ -313,9 +333,7 @@ def _tables_list(api, filter="", limit=50, **_):
             "limit": {"type": "integer", "default": 50}},
            "columns[], rows[][], total, matched")
 def _tables_query(api, table="", columns=None, where=None, limit=50, **_):
-    from .tables import TableDatabase
-    session = _session(api)
-    database = TableDatabase(session.game)
+    database = api.tables_db()
     try:
         resolved = database._match_table_name(table)
         data = database.load(resolved)
@@ -346,9 +364,7 @@ def _tables_query(api, table="", columns=None, where=None, limit=50, **_):
             "limit": {"type": "integer", "default": 20}},
            "columns[], rows[][], total")
 def _units_query(api, filter="", columns=None, limit=20, **_):
-    from .tables import TableDatabase
-    session = _session(api)
-    units = TableDatabase(session.game).units()
+    units = api.units_table()
     if filter:
         needle = filter.lower()
         units = units.filter(lambda row, _record: any(needle in str(cell).lower() for cell in row))
@@ -367,9 +383,7 @@ def _units_query(api, filter="", columns=None, limit=20, **_):
                                                                    "default": 50}},
            "documents[{path, frames}], total")
 def _ui_documents(api, filter="", limit=50, **_):
-    from .ui import UiLibrary
-    session = _session(api)
-    library = UiLibrary(session.game)
+    library = api.ui_library()
     documents = []
     for path in library.documents(filter):
         try:
@@ -383,16 +397,27 @@ def _ui_documents(api, filter="", limit=50, **_):
            {"name": {"type": "string", "required": True}},
            "name, kind, source, inherits[], properties{}, textures[]")
 def _ui_frame(api, name="", **_):
-    from .ui import UiLibrary
-    session = _session(api)
     try:
-        details = UiLibrary(session.game).resolve(name)
+        details = api.ui_library().resolve(name)
     except KeyError as exc:
         raise ApiError("FRAME_NOT_FOUND", str(exc),
                        ["call assets.list kind=ui to browse FDF files"]) from exc
     return {"name": details["name"], "kind": details["kind"], "source": details["source"],
             "inherits": details["chain"], "properties": details["properties"],
             "textures": [reference for reference, _resolved in details["textures"]]}
+
+
+@operation("ui.strings", "Localised interface strings (StringList blocks)",
+           {"filter": {"type": "string", "default": ""}, "limit": {"type": "integer",
+                                                                   "default": 100}},
+           "strings{{KEY: value}}, total")
+def _ui_strings(api, filter="", limit=100, **_):
+    strings = api.ui_library().strings()
+    needle = (filter or "").lower()
+    items = {key: value for key, value in sorted(strings.items())
+             if not needle or needle in key.lower() or needle in str(value).lower()}
+    limited = dict(list(items.items())[: int(limit)])
+    return {"total": len(items), "returned": len(limited), "strings": limited}
 
 
 @operation("audio.list", "Inventory of the game's audio",
@@ -413,6 +438,22 @@ def _audio_list(api, category="", filter="", measure=False, limit=50, **_):
               "seconds": round(item.duration, 3) if item.duration else None}
              for item in files[: int(limit)]]
     return {"categories": rows, "total": len(files), "items": items}
+
+
+@operation("audio.extract", "Copy audio files out, keeping the archive layout",
+           {"out": {"type": "string", "required": True},
+            "category": {"type": "string", "default": "",
+                         "enum": ["", "music", "ambient", "dialogue", "abilities",
+                                  "units", "ui", "other"]},
+            "filter": {"type": "string", "default": ""},
+            "limit": {"type": "integer", "default": 0}},
+           "out, written, bytes, failed")
+def _audio_extract(api, out="", category="", filter="", limit=0, **_):
+    from .audio import extract
+    session = _session(api)
+    stats = extract(session.game, Path(out), category=category or None,
+                    needle=filter, limit=int(limit))
+    return {"out": str(Path(out)), **stats}
 
 
 @operation("bundle.build", "Export a full asset bundle (optionally zipped)",
@@ -460,6 +501,28 @@ class Api:
     def __init__(self, game_dir: str | None = None):
         self.game_dir = game_dir
         self.session = None
+        self._tables = None
+        self._ui = None
+        self._units = None
+
+    def tables_db(self):
+        """Shared TableDatabase: loading 213 tables costs ~1.5 s, so keep it."""
+        if self._tables is None:
+            from .tables import TableDatabase
+            self._tables = TableDatabase(_session(self).game)
+        return self._tables
+
+    def ui_library(self):
+        if self._ui is None:
+            from .ui import UiLibrary
+            self._ui = UiLibrary(_session(self).game)
+        return self._ui
+
+    def units_table(self):
+        """The joined unit table: joining four spreadsheets is not free either."""
+        if self._units is None:
+            self._units = self.tables_db().units()
+        return self._units
 
     def call(self, request: dict) -> dict:
         op_name = (request or {}).get("op", "")
@@ -556,17 +619,20 @@ def dispatch_cli(argv: list) -> int:
                 request.update(json.loads(argv[argv.index("--params") + 1]))
         elif batch is None and "--capabilities" not in argv:
             raw = sys.stdin.read()
-            if raw.strip():
-                request = json.loads(raw)
+            lines = [line.strip() for line in raw.splitlines() if line.strip()]
+            if len(lines) > 1:
+                batch = lines  # JSONL on stdin: treat it as a batch, like --batch
+            elif lines:
+                request = json.loads(lines[0])
         if batch:
-            with open(batch, encoding="utf-8") as handle:
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    reply = api.call(json.loads(line))
-                    _emit(reply, pretty)
-                    exit_code = max(exit_code, _code(reply))
+            source = batch if isinstance(batch, list) else None
+            if source is None:
+                with open(batch, encoding="utf-8") as handle:
+                    source = [line.strip() for line in handle if line.strip()]
+            for line in source:
+                reply = api.call(json.loads(line))
+                _emit(reply, pretty)
+                exit_code = max(exit_code, _code(reply))
             return exit_code
         if request is None:
             _emit({"ok": False, "error": {"code": "BAD_REQUEST",
