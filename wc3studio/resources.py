@@ -64,12 +64,48 @@ class Resources:
         self._images: dict[str, Image.Image | None] = {}
         self._png: dict[str, bytes | None] = {}
         self.missing: set[str] = set()
+        self.fallbacks: dict[str, str] = {}
 
     # -- raw --------------------------------------------------------------
     def read(self, internal_path: str) -> bytes | None:
         return self.game.read(internal_path)
 
     # -- textures ---------------------------------------------------------
+    def _fallback_texture(self, internal_path: str):
+        """Find a texture whose path was baked on the artist's machine.
+
+        A few models reference absolute paths like
+        ``\\\\guldan\\drive1\\...\\star5.tga``; the file itself lives in the archives
+        under a normal name (``...\\star5tga.tga``), so match by base name instead.
+        """
+        base = internal_path.replace("/", "\\").rsplit("\\", 1)[-1].lower()
+        stem = base.rsplit(".", 1)[0]
+        if not stem:
+            return None
+        candidates = []
+        for name in self.game.names():
+            lower = name.lower()
+            if not lower.endswith((".blp", ".tga")):
+                continue
+            file_stem = lower.rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+            if file_stem == stem:
+                candidates.append((0, len(name), name))
+            elif file_stem.startswith(stem):
+                candidates.append((1, len(name), name))
+            elif stem.startswith(file_stem) and len(file_stem) >= 6:
+                candidates.append((2, len(name), name))
+        for _priority, _length, name in sorted(candidates):
+            data = self.read(name)
+            if data and data[:4] in (b"BLP1", b"BLP2"):
+                try:
+                    from . import blp as _blp
+                    image = _blp.decode(data).convert("RGBA")
+                except Exception:  # noqa: BLE001
+                    continue
+                self.fallbacks[internal_path] = name
+                return image
+        return None
+
     def image(self, internal_path: str, replaceable_id: int = 0) -> Image.Image | None:
         """Decode a texture to RGBA, falling back to a flat placeholder."""
         key = internal_path.lower() if internal_path else f"\x00replaceable{replaceable_id}"
@@ -84,6 +120,8 @@ class Resources:
                     image = blp.decode(data).convert("RGBA")
                 except Exception:  # noqa: BLE001 - a broken texture must not kill a conversion
                     image = None
+            if image is None:
+                image = self._fallback_texture(internal_path)
             if image is None:
                 self.missing.add(internal_path)
         elif replaceable_id:
