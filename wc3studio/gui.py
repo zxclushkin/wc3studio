@@ -19,6 +19,7 @@ from tkinter import filedialog, messagebox, ttk
 from PIL import Image, ImageTk
 
 from . import __version__
+from .bundle import build_bundle
 from .pipeline import Session, render_animation, write_gif
 from .stormlib import StormLibError, find_game_dirs
 
@@ -335,6 +336,11 @@ class App(tk.Tk):
             ttk.Button(export_frame, text=label, command=lambda f=fmt: self._export(f)).pack(fill="x", pady=3)
         ttk.Label(export_frame, text="GIF uses the selected animation;\npick \"<all animations>\" for a playlist.",
                   style="Dim.TLabel", justify="left").pack(anchor="w", pady=(10, 0))
+        ttk.Separator(export_frame).pack(fill="x", pady=(12, 8))
+        ttk.Button(export_frame, text="Bundle everything…",
+                   command=self._open_bundle_dialog).pack(fill="x")
+        ttk.Label(export_frame, text="Все модели, glTF с анимациями, .mdx, таблицы\nи интерфейс — в одну папку и/или zip.",
+                  style="Dim.TLabel", justify="left").pack(anchor="w", pady=(6, 0))
 
         # --- data tables tab
         data_frame = ttk.Frame(notebook)
@@ -944,6 +950,15 @@ class App(tk.Tk):
                     self.status_var.set(f"interface documents loaded: {len(message[1])}")
                 elif kind == "table_data":
                     self._show_table_window(message[1], message[2])
+                elif kind == "bundle_done":
+                    self._on_bundle_done(message[1])
+                elif kind == "bundle_failed":
+                    state = getattr(self, "_bundle_state", None)
+                    if state:
+                        state["running"] = False
+                        state["progress"].set(f"ошибка: {message[1]}")
+                    self.status_var.set(f"bundle failed: {message[1]}")
+                    messagebox.showerror("wc3studio", f"Bundle failed:\n\n{message[1]}")
                 elif kind == "status":
                     self.status_var.set(message[1])
         except queue.Empty:
@@ -1038,6 +1053,138 @@ class App(tk.Tk):
         preview.thumbnail((260, 260))
         self._thumb_refs = [ImageTk.PhotoImage(preview)]
         self.texture_preview.configure(image=self._thumb_refs[0], text="")
+
+    # -- bundle -----------------------------------------------------------
+    def _open_bundle_dialog(self):
+        if self.session is None:
+            messagebox.showinfo("wc3studio", "Load the game first.")
+            return
+        window = tk.Toplevel(self)
+        window.title("Bundle everything")
+        window.geometry("520x560")
+        window.configure(bg=BG)
+        window.transient(self)
+
+        folder_var = tk.StringVar(value=str(Path.cwd() / "wc3_bundle"))
+        flags = {
+            "models": tk.BooleanVar(value=True),
+            "glb": tk.BooleanVar(value=True),
+            "raw": tk.BooleanVar(value=False),
+            "tables": tk.BooleanVar(value=True),
+            "ui": tk.BooleanVar(value=False),
+            "previews": tk.BooleanVar(value=False),
+            "archive": tk.BooleanVar(value=True),
+        }
+        limit_var = tk.IntVar(value=0)
+        filter_var = tk.StringVar(value="")
+
+        pad = {"padx": 10}
+        ttk.Label(window, text="Куда сохранять").pack(anchor="w", **pad, pady=(10, 2))
+        row = ttk.Frame(window)
+        row.pack(fill="x", **pad)
+        ttk.Entry(row, textvariable=folder_var).pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="…", width=3, command=lambda: folder_var.set(
+            filedialog.askdirectory(title="Bundle folder") or folder_var.get())).pack(side="left", padx=(4, 0))
+
+        ttk.Label(window, text="Что включить").pack(anchor="w", **pad, pady=(12, 2))
+        labels = {
+            "models": "Модели: OBJ + MTL + PNG-текстуры",
+            "glb": "glTF (.glb) — со скелетом и всеми анимациями",
+            "raw": "Исходные .mdx",
+            "tables": "Таблицы данных (CSV)",
+            "ui": "Картинки интерфейса (PNG)",
+            "previews": "Превью-анимации GIF на каждую модель (медленно)",
+            "archive": "Ещё и одним zip-архивом",
+        }
+        for key, text in labels.items():
+            ttk.Checkbutton(window, text=text, variable=flags[key]).pack(anchor="w", **pad)
+
+        ttk.Label(window, text="Ограничения").pack(anchor="w", **pad, pady=(12, 2))
+        row = ttk.Frame(window)
+        row.pack(fill="x", **pad)
+        ttk.Label(row, text="только первых моделей").pack(side="left")
+        ttk.Spinbox(row, from_=0, to=4000, increment=25, width=6,
+                    textvariable=limit_var).pack(side="left", padx=(6, 14))
+        ttk.Label(row, text="фильтр пути").pack(side="left")
+        ttk.Entry(row, textvariable=filter_var, width=18).pack(side="left", padx=(6, 0))
+
+        progress_var = tk.StringVar(value="готово к запуску")
+        ttk.Label(window, textvariable=progress_var, style="Dim.TLabel",
+                  wraplength=480, justify="left").pack(anchor="w", **pad, pady=(14, 4))
+        bar = ttk.Progressbar(window, maximum=100)
+        bar.pack(fill="x", **pad)
+
+        state = {"running": False, "window": window, "progress": progress_var, "bar": bar,
+                 "flags": flags, "folder": folder_var, "limit": limit_var, "filter": filter_var}
+
+        def start():
+            if state["running"]:
+                return
+            from .bundle import BundleOptions
+            chosen = {key for key in ("models", "glb", "raw", "tables", "ui")
+                      if flags[key].get()}
+            if not chosen and not flags["previews"].get():
+                messagebox.showinfo("wc3studio", "Выберите хотя бы один формат.", parent=window)
+                return
+            options = BundleOptions(
+                out=Path(state["folder"].get()),
+                formats=chosen or {"glb"},
+                previews=flags["previews"].get(),
+                limit=state["limit"].get(),
+                model_filter=state["filter"].get().strip(),
+                archive=flags["archive"].get(),
+            )
+            state["running"] = True
+            progress_var.set("стартую…")
+            bar.configure(value=0)
+            self.status_var.set("bundling…")
+
+            def work():
+                try:
+                    stats = build_bundle(self.session, options, self._bundle_progress)
+                    self.panel_queue.put(("bundle_done", stats))
+                except Exception as exc:  # noqa: BLE001
+                    self.panel_queue.put(("bundle_failed", str(exc)))
+
+            threading.Thread(target=work, daemon=True).start()
+
+        buttons = ttk.Frame(window)
+        buttons.pack(fill="x", **pad, pady=(16, 10))
+        ttk.Button(buttons, text="Старт", command=start).pack(side="left")
+        ttk.Button(buttons, text="Закрыть", command=window.destroy).pack(side="right")
+
+        self._bundle_state = state
+        window.lift()
+
+    def _bundle_progress(self, kind, done, total, message=""):
+        state = getattr(self, "_bundle_state", None)
+        if not state or not state.get("window"):
+            return
+        percent = 100 * done / max(total, 1)
+        state["bar"].configure(value=percent)
+        label = {"models": "модели", "raw": "сырые .mdx", "tables": "таблицы",
+                 "ui": "интерфейс", "zip": "архив"}.get(kind, kind)
+        state["progress"].set(f"{label}: {done}/{total} ({percent:.0f}%)  {message[-70:]}")
+
+    def _on_bundle_done(self, stats):
+        state = getattr(self, "_bundle_state", None)
+        if state:
+            state["running"] = False
+            counts = stats["counts"]
+            state["progress"].set(f"готово: {stats['bytes'] / 1048576:.1f} MiB")
+            state["bar"].configure(value=100)
+        counts = stats["counts"]
+        parts = [f"{name}: {counts[name]}" for name in ("models", "glb", "raw", "tables", "ui", "previews")
+                 if counts[name]]
+        summary = (f"Готово.\n\n" + "\n".join(parts)
+                   + f"\n\nРазмер: {stats['bytes'] / 1048576:.1f} MiB")
+        if stats.get("archive"):
+            summary += (f"\nАрхив: {stats['archive']} "
+                        f"({stats['archive_bytes'] / 1048576:.1f} MiB)")
+        if stats["errors"]:
+            summary += f"\n\nОшибок: {len(stats['errors'])}"
+        self.status_var.set(f"bundle -> {stats['out']}")
+        messagebox.showinfo("wc3studio", summary)
 
     # -- export -----------------------------------------------------------
     def _export(self, fmt: str):
