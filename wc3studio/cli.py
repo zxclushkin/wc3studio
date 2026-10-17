@@ -492,6 +492,60 @@ def cmd_doctor(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_bundle(args) -> int:
+    from .bundle import BundleOptions, build_bundle
+    session = _open(args)
+    options = BundleOptions(
+        out=Path(args.out),
+        formats={part.strip().lower() for part in args.formats.split(",") if part.strip()},
+        previews=args.previews,
+        preview_size=args.preview_size,
+        preview_fps=args.preview_fps,
+        preview_frames=args.preview_frames,
+        preview_sequence=args.preview_sequence,
+        limit=args.limit,
+        model_filter=args.filter or "",
+        all_geosets=args.all_geosets,
+        sequences=args.sequences.split(",") if args.sequences else None,
+        archive=args.zip,
+    )
+
+    state = {"kind": ""}
+
+    def progress(kind, done, total, message=""):
+        if kind != state["kind"]:
+            state["kind"] = kind
+            state["done"] = 0
+        filled = int(24 * done / max(total, 1))
+        percent = int(100 * done / max(total, 1))
+        sys.stdout.write(f"\r  {kind:<8} [{'#' * filled:-<24}] {done}/{total} {percent:>3}% ")
+        sys.stdout.flush()
+        if done >= total:
+            sys.stdout.write("\n")
+
+    print(f"bundle -> {Path(args.out).resolve()}")
+    print(f"  formats : {', '.join(sorted(options.normalised().formats))}"
+          + (" + previews" if options.previews else "")
+          + (" + zip" if options.archive else ""))
+    stats = build_bundle(session, options, progress)
+
+    counts = stats["counts"]
+    print("\nwritten:")
+    for name in ("models", "glb", "raw", "tables", "ui", "previews"):
+        if counts[name]:
+            print(f"  {name:<9} {counts[name]:>6}")
+    print(f"  size      {stats['bytes'] / 1048576:>10.1f} MiB")
+    if stats.get("archive"):
+        print(f"  archive   {Path(stats['archive']).resolve()} "
+              f"({stats['archive_bytes'] / 1048576:.1f} MiB)")
+    print(f"  manifest  {stats['manifest']}")
+    if stats["errors"]:
+        print(f"\n  errors: {len(stats['errors'])}")
+        for error in stats["errors"][:10]:
+            print("   ", error)
+    return 0 if not stats["errors"] else 1
+
+
 def cmd_gui(args) -> int:
     try:
         from .gui import run
@@ -916,6 +970,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tile", type=int, default=128)
     p.add_argument("--columns", type=int, default=8)
     p.set_defaults(func=cmd_ui_assets)
+
+    p = subparsers.add_parser("bundle", help="export everything at once into a folder and/or zip")
+    add_game(p)
+    p.add_argument("--out", required=True, help="output folder")
+    p.add_argument("--formats", default="models,glb",
+                   help="comma separated: models (OBJ+MTL+PNG), glb, raw (.mdx), tables (CSV), ui (PNG)")
+    p.add_argument("--zip", action="store_true", help="also write <out>.zip")
+    p.add_argument("--previews", action="store_true",
+                   help="render a short GIF per model (slow: several frames each)")
+    p.add_argument("--preview-size", type=int, default=192)
+    p.add_argument("--preview-fps", type=int, default=10)
+    p.add_argument("--preview-frames", type=int, default=10)
+    p.add_argument("--preview-sequence", default="Stand",
+                   help="which animation the preview shows (falls back to the first)")
+    p.add_argument("--sequences", help="with glb: restrict the exported animations")
+    p.add_argument("--filter", help="only model paths containing this")
+    p.add_argument("--limit", type=int, default=0, help="only the first N models (for a quick try)")
+    p.add_argument("--all-geosets", action="store_true")
+    p.set_defaults(func=cmd_bundle)
 
     p = subparsers.add_parser("gui", help="open the graphical interface")
     add_game(p)
