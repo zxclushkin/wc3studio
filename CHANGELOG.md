@@ -4,6 +4,46 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-10-17
+
+Full sweep over every model: 3225 checked in 50 seconds, 0 exceptions, and three
+more defects that only a whole-archive pass could find.
+
+### Fixed
+
+* **The GPU skipped the wrong filter mode.** It dropped `FILTER_BLEND` (2) where the
+  CPU preview drops `FILTER_ADDITIVE` (3), so semi-transparent effect layers vanished
+  and additive glow planes were drawn as solid quads. The decision is now a named
+  `draws_item()` shared with the CPU convention.
+* **Effects were framed by geometry that is never drawn.** The camera used
+  `fit_camera()`, which skims every geoset including the huge additive glow planes, so
+  a spell effect ended up a few pixels tall: **63 models** rendered essentially empty
+  while the CPU render showed them at 8-25% of the frame. The camera now takes its
+  bounds from `collect()`, the same items that are drawn.
+* **The fragment shader lost its lighting and alpha** to a leftover debug line
+  (`fragColor = vec4(texture(...).rgb, 1.0)`), so models were flat and fully opaque.
+
+### The sweep itself
+
+`build/sweep_all.py` walks every model through the GL viewport and compares the frame
+with the CPU data path:
+
+| | |
+|---|---|
+| models checked | 3225 in 50 s |
+| exceptions | 0 |
+| rendered ok | 3162 |
+| blank on GPU | 63 (all fixed by the camera change, 1 effect still frames loosely) |
+| no geometry | 398 (target-only models, expected) |
+| no textures | 2 (`HeroBloodSphere.MDX`, replaceable-only team colour) |
+| UV outside 0..1 | 171 (legitimate tiling) |
+| NaN positions | 0 |
+
+### Testing
+
+* 3 new regression tests (112 total): `draws_item` for blend vs additive, and the effect
+  camera being tighter than the all-geometry fit.
+
 ## [1.6.1] - 2026-10-17
 
 Bug hunt on the new window: four real defects, all found by comparing renders and by

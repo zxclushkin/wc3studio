@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wc3studio"
-version = "1.6.1"
+version = "1.6.2"
 description = "Browse, extract, convert and animate Warcraft III assets (MPQ / MDX / BLP)"
 readme = "README.md"
 requires-python = ">=3.10"

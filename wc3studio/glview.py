@@ -16,8 +16,8 @@ from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram
                              QOpenGLTexture, QOpenGLVertexArrayObject)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
-from .render import (DEFAULT_BG, collect, fit_camera, look_at_matrix,
-                     perspective_matrix)
+from .render import (DEFAULT_BG, FILTER_ADDITIVE, camera_for_bounds, collect,
+                     fit_camera, look_at_matrix, perspective_matrix)
 
 VERTEX_SHADER = """
 #version 330 core
@@ -49,9 +49,18 @@ void main() {
     vec3 normal = normalize(vNormal);
     float diffuse = abs(dot(normal, uLight));
     float shade = 0.45 + 0.55 * diffuse;
-    fragColor = vec4(texture(uTexture, vUV).rgb, 1.0);
+    fragColor = vec4(base.rgb * shade, base.a);
 }
 """
+
+
+def draws_item(filter_mode: int) -> bool:
+    """Additive planes are soft glow gradients; the CPU preview skips them too.
+
+    The GPU path used to skip FILTER_BLEND (2) instead of FILTER_ADDITIVE (3), so
+    semi-transparent effects disappeared and glow planes were drawn as solid quads.
+    """
+    return filter_mode != FILTER_ADDITIVE
 
 
 class _Item:
@@ -174,13 +183,30 @@ class ModelView(QOpenGLWidget):
         return list(self.model.sequences) if self.model else []
 
     def _rebuild_camera(self) -> None:
+        """Frame what is actually drawn, not every geoset in the file.
+
+        fit_camera() skims all geometry, including the huge additive glow planes that
+        both renderers deliberately skip; effects then ended up a pixel tall. Bounds
+        are taken from collect() instead, which applies the same skip as the drawing.
+        """
         if self.model is None:
             self.camera = None
             return
-        # frames are (absolute frame, local time) pairs
+        low = np.full(3, np.inf)
+        high = np.full(3, -np.inf)
         frames = [(sequence["start"], 0.0) for sequence in self.model.sequences[:4]] or [(0, 0.0)]
-        self.camera = fit_camera(self.model, self.animator, frames,
-                                 all_geosets=self.all_geosets)
+        for frame, local_time in frames:
+            for item in collect(self.model, self.session.resources,
+                                all_geosets=self.all_geosets, animator=self.animator,
+                                frame=frame, local_time=local_time):
+                points = item["pos"]
+                if len(points):
+                    low = np.minimum(low, points.min(axis=0))
+                    high = np.maximum(high, points.max(axis=0))
+        if not np.isfinite(low).all() or not len(high):
+            self.camera = None
+            return
+        self.camera = camera_for_bounds(low, high)
 
     # -- playback ---------------------------------------------------------
     def play(self) -> None:
@@ -380,7 +406,7 @@ class ModelView(QOpenGLWidget):
         self.program.setUniformValue("uLight", float(light[0]), float(light[1]), float(light[2]))
 
         for entry in self.items:
-            if entry.filter_mode == 2:      # additive glow planes: skip, like the CPU path
+            if not draws_item(entry.filter_mode):
                 continue
             if entry.blend:
                 functions.glEnable(0x0BE2)  # GL_BLEND

@@ -126,5 +126,39 @@ class TestViewState(unittest.TestCase):
         self.assertTrue(self.view.model.geosets)
 
 
+class TestFilterModes(unittest.TestCase):
+    """The GPU used to skip FILTER_BLEND instead of FILTER_ADDITIVE."""
+
+    def test_semi_transparent_layers_are_drawn(self):
+        from wc3studio.glview import draws_item
+        from wc3studio.render import FILTER_BLEND
+        self.assertTrue(draws_item(FILTER_BLEND))
+
+    def test_additive_glow_planes_are_skipped(self):
+        from wc3studio.glview import draws_item
+        from wc3studio.render import FILTER_ADDITIVE, FILTER_NONE
+        self.assertFalse(draws_item(FILTER_ADDITIVE))
+        self.assertTrue(draws_item(FILTER_NONE))
+
+
+class TestCameraFit(unittest.TestCase):
+    """Effects used to be framed by their huge glow planes and became a pixel."""
+
+    def test_effect_camera_is_tighter_than_all_geometry(self):
+        from wc3studio.render import fit_camera
+        view, session = _view_or_skip()
+        try:
+            path = session.resolve(r"Abilities\Spells\NightElf\Starfall\StarfallCaster.mdx")
+            view.set_model(path)
+            drawn = float(view.camera["radius"])
+            everything = fit_camera(view.model, view.animator,
+                                    [(view.model.sequences[0]["start"], 0.0)])
+            self.assertLess(drawn, float(everything["radius"]),
+                            "the camera must frame what is drawn, not the glow planes")
+        finally:
+            view.deleteLater()
+            session.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
