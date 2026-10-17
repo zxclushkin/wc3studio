@@ -129,6 +129,12 @@ class TestViewState(unittest.TestCase):
 class TestFilterModes(unittest.TestCase):
     """The GPU used to skip FILTER_BLEND instead of FILTER_ADDITIVE."""
 
+    def setUp(self):
+        try:
+            import PySide6  # noqa: F401
+        except ImportError:
+            raise unittest.SkipTest("PySide6 is not installed")
+
     def test_semi_transparent_layers_are_drawn(self):
         from wc3studio.glview import draws_item
         from wc3studio.render import FILTER_BLEND
