@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-10-17
+
+Hardening the agent API after a full pass over every operation.
+
+### Fixed
+
+* **An unknown `kind` in `assets.list`/`assets.search` silently returned an empty list** —
+  a typo looked like "no assets of that kind". It is now `BAD_PARAM` with the enum in the
+  hint. Parameter validation happens before the archives are opened, so a bad request in a
+  machine without the game reports `BAD_PARAM`, not `GAME_NOT_FOUND`.
+* **Several JSON lines on stdin were parsed as one broken request** — they now behave like
+  `--batch`, which is what an agent that pipes a JSONL file expects.
+
+### Added
+
+* `texture.export` — BLP/TGA → PNG with optional resize.
+* `ui.strings` — localised interface strings.
+* `audio.extract` — copy audio files out by category.
+
+### Performance
+
+* The table database, the joined unit table and the FDF library are cached per session:
+  the second `tables.list` costs 0.3 ms instead of 1.6 s, `units.query` 0 ms instead of
+  27 ms.
+
 ## [1.4.0] - 2026-10-17
 
 An API that an AI agent can use without reading `--help`.

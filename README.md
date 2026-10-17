@@ -31,7 +31,7 @@
 | **Данные** | 213 таблиц (SLK + INI) → CSV/JSON, склеенная база **812 юнитов** с русскими названиями и всеми характеристиками |
 | **Интерфейс** | 86 FDF → дерево **2239 фреймов** с наследованием шаблонов, 1214 локализованных строк, выгрузка 1561 картинки UI в PNG |
 | **Бандл** | `bundle` — всё сразу в папку и/или **zip**: OBJ, glTF с анимациями, **звуки модели**, `.mdx`, таблицы CSV, интерфейс PNG, GIF-превью, `models.json` и `manifest.json` |
-| **Для агентов** | `agent` — самодокументируемый JSON-API (15 операций, коды ошибок и подсказки для самокоррекции), `mcp` — MCP-сервер для Claude Desktop, Cursor и прочих клиентов |
+| **Для агентов** | `agent` — самодокументируемый JSON-API (18 операций, коды ошибок и подсказки для самокоррекции), `mcp` — MCP-сервер для Claude Desktop, Cursor и прочих клиентов |
 | **Проверка** | `validate` (индексы OBJ, ссылки на MTL, структура GLB) и `doctor` (окружение, поиск игры) |
 
 ## Установка
@@ -230,7 +230,7 @@ zip — 67 МиБ. Полный набор с звуками — примерн�
 баннеров и русских сообщений в stdout. Агенту не нужно читать `--help`.
 
 ```powershell
-wc3studio agent --capabilities                      # манифест: 15 операций, их параметры
+wc3studio agent --capabilities                      # манифест: 18 операций, их параметры
 wc3studio agent --call model.info --params '{"model": "sheep"}'
 '{"op":"units.query","filter":"hfoo"}' | wc3studio agent
 wc3studio agent --batch requests.jsonl              # JSONL: одна строка — один запрос
@@ -269,8 +269,13 @@ wc3studio mcp        # JSON-RPC по stdio: initialize, tools/list, tools/call
 следующие — единицы миллисекунд.
 
 Операции: `capabilities`, `doctor`, `assets.search`, `assets.list`, `model.info`,
-`model.animations`, `model.render`, `model.export`, `tables.list`, `tables.query`,
-`units.query`, `ui.documents`, `ui.frame`, `audio.list`, `bundle.build`.
+`model.animations`, `model.render`, `model.export`, `texture.export`, `tables.list`,
+`tables.query`, `units.query`, `ui.documents`, `ui.frame`, `ui.strings`, `audio.list`,
+`audio.extract`, `bundle.build`.
+
+Повторные вызовы бесплатны: база таблиц, склеенная таблица юнитов и библиотека FDF
+кэшируются на время сессии (`tables.list` второй раз — 0.3 мс вместо 1.6 с).
+Несколько JSON-строк на stdin тоже работают как пакет.
 
 ## Звук
 
