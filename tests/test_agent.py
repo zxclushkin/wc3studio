@@ -143,6 +143,19 @@ def _api_or_skip() -> Api:
     return api
 
 
+class TestNewOperations(unittest.TestCase):
+    def test_kind_validation(self):
+        reply = Api().call({"op": "assets.list", "kind": "nonsense"})
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"]["code"], "BAD_PARAM")
+        self.assertTrue(any("model, texture" in hint for hint in reply["error"]["hints"]))
+
+    def test_search_kind_validation(self):
+        reply = Api().call({"op": "assets.search", "query": "x", "kinds": ["nonsense"]})
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"]["code"], "BAD_PARAM")
+
+
 class TestRealData(unittest.TestCase):
     def setUp(self):
         self.api = _api_or_skip()
@@ -215,6 +228,82 @@ class TestRealData(unittest.TestCase):
             self.assertTrue(target.is_file())
             self.assertGreater(reply["data"]["bytes"], 100)
             self.assertEqual((reply["data"]["width"], reply["data"]["height"]), (128, 128))
+
+    def test_texture_export(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sheep_tex.png"
+            reply = self.api.call({"op": "texture.export", "path": r"Textures\SheepA.blp",
+                                   "out": str(target), "size": 64})
+            self.assertTrue(reply["ok"], reply)
+            self.assertEqual(reply["data"]["width"], 64)
+            self.assertTrue(target.is_file())
+
+    def test_texture_export_missing(self):
+        reply = self.api.call({"op": "texture.export", "path": r"Textures\NoSuchTexture.blp",
+                               "out": "unused.png"})
+        self.assertFalse(reply["ok"])
+        self.assertEqual(reply["error"]["code"], "TEXTURE_NOT_FOUND")
+
+    def test_ui_strings(self):
+        reply = self.api.call({"op": "ui.strings", "filter": "AGILITY", "limit": 5})
+        self.assertTrue(reply["ok"], reply)
+        self.assertIn("AGILITY", reply["data"]["strings"])
+
+    def test_audio_extract(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            reply = self.api.call({"op": "audio.extract", "out": tmp,
+                                   "filter": "Sheep1", "limit": 5})
+            self.assertTrue(reply["ok"], reply)
+            self.assertGreater(reply["data"]["written"], 0)
+            self.assertTrue(any(Path(tmp).rglob("*.wav")))
+
+    def test_export_obj_includes_textures(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            reply = self.api.call({"op": "model.export", "model": "sheep",
+                                   "out": str(Path(tmp) / "sheep.obj"), "format": "obj"})
+            self.assertTrue(reply["ok"], reply)
+            files = reply["data"]["files"]
+            self.assertTrue(any(name.endswith(".obj") for name in files))
+            self.assertTrue(any(name.endswith(".mtl") for name in files))
+            self.assertTrue(any(name.endswith(".png") for name in files),
+                            "textures must travel with the OBJ")
+
+
+class TestBatchAndSpeed(unittest.TestCase):
+    def test_jsonl_on_stdin(self):
+        """Several JSON lines on stdin must behave like --batch, not like one request."""
+        lines = [json.dumps({"op": "capabilities"}),
+                 json.dumps({"op": "nope"})]
+        stdin = io.StringIO("\n".join(lines) + "\n")
+        buffer = io.StringIO()
+        previous = sys.stdin
+        sys.stdin = stdin
+        try:
+            with redirect_stdout(buffer):
+                code = agent_module.dispatch_cli([])
+        finally:
+            sys.stdin = previous
+        replies = [json.loads(line) for line in buffer.getvalue().splitlines() if line.strip()]
+        self.assertEqual(len(replies), 2)
+        self.assertTrue(replies[0]["ok"])
+        self.assertEqual(replies[1]["error"]["code"], "UNKNOWN_OP")
+        self.assertEqual(code, 2)
+
+    def test_repeated_calls_are_cached(self):
+        """The second tables.list must not re-read 213 spreadsheets."""
+        api = _api_or_skip()
+        try:
+            first = api.call({"op": "tables.list", "limit": 2})
+            second = api.call({"op": "tables.list", "limit": 2})
+            self.assertTrue(first["ok"] and second["ok"])
+            self.assertEqual(first["data"]["total"], second["data"]["total"])
+            self.assertLess(second["elapsed_ms"], max(first["elapsed_ms"], 50),
+                            "the database should be cached between calls")
+        finally:
+            api.close()
 
 
 if __name__ == "__main__":
