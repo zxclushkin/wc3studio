@@ -31,13 +31,14 @@ Or from the command line::
 """
 from __future__ import annotations
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 from .agent import Api, capabilities
 from .anim import Animator
 from .blp import decode as decode_blp
 from .bundle import BundleOptions, build_bundle
 from .gltf import Glb, export_glb, read_glb
+from .icons import IconIndex, IconRecord
 from .mdx import Model, MdxError, parse as parse_mdx
 from .objexport import export_obj
 from .render import fit_camera, render
@@ -49,6 +50,7 @@ from .ui import FdfDocument, Frame, UiLibrary, parse_fdf
 __all__ = [
     "__version__",
     "Animator", "Api", "Archive", "BundleOptions", "FdfDocument", "Frame", "Game", "Glb",
+    "IconIndex", "IconRecord",
     "MdxError", "Model", "Resources", "StormLib", "StormLibError", "Table",
     "TableDatabase", "UiLibrary", "build_bundle", "capabilities", "decode_blp", "export_glb",
     "export_obj", "find_game_dirs", "fit_camera", "parse_fdf", "parse_ini",
