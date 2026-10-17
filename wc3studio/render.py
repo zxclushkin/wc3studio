@@ -97,6 +97,9 @@ def collect(model: Model, resources: Resources | None, all_geosets: bool = False
             "uv": np.asarray(uv, dtype=np.float32).reshape(-1, 2) if uv else None,
             "nrm": normals,
             "tex": texture,
+            "tex_path": (model.textures[layer.texture_id].path
+                         if layer is not None and 0 <= layer.texture_id < len(model.textures)
+                         else ""),
             "replaceable_glow": replaceable_glow,
             "filter_mode": filter_mode,
             "solid": (texture is not None) or not replaceable_glow,
