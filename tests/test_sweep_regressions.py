@@ -87,7 +87,7 @@ class TestTextureFallback(unittest.TestCase):
 
 class TestCamera(unittest.TestCase):
     def test_near_plane_does_not_clip_small_units(self):
-        from wc3studio.glview import near_plane
+        from wc3studio.render import near_plane
         # mini icons have a radius around 0.002; the old 0.05 floor was behind them
         self.assertLess(near_plane(0.02), 0.05)
         self.assertAlmostEqual(near_plane(100.0), 2.0)

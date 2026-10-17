@@ -155,6 +155,16 @@ def look_at_matrix(eye, target, up=(0.0, 0.0, 1.0)) -> np.ndarray:
     return matrix
 
 
+def near_plane(distance: float) -> float:
+    """Distance to the near clip plane for a camera at ``distance``.
+
+    A fixed floor of 0.05 behind the usual ``distance * 0.02`` clipped mini icons,
+    whose whole model radius is 0.002; 1e-4 is small enough for them and far enough
+    from zero for the depth buffer.
+    """
+    return max(distance * 0.02, 1e-4)
+
+
 def perspective_matrix(focal: float, aspect: float, near: float, far: float) -> np.ndarray:
     """OpenGL projection: near maps to -1 and far to +1 in clip space."""
     matrix = np.zeros((4, 4))

@@ -17,7 +17,7 @@ from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from .render import (DEFAULT_BG, FILTER_ADDITIVE, camera_for_bounds, collect,
-                     fit_camera, look_at_matrix, perspective_matrix)
+                     fit_camera, look_at_matrix, near_plane, perspective_matrix)
 
 VERTEX_SHADER = """
 #version 330 core
@@ -61,11 +61,6 @@ def draws_item(filter_mode: int) -> bool:
     semi-transparent effects disappeared and glow planes were drawn as solid quads.
     """
     return filter_mode != FILTER_ADDITIVE
-
-
-def near_plane(distance: float) -> float:
-    """Just in front of the eye. The old 0.05 floor clipped units smaller than that."""
-    return max(distance * 0.02, 1e-4)
 
 
 class _Item:
