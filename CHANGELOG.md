@@ -4,6 +4,62 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-10-17
+
+Sweep over the whole archive, then two audits in parallel (GPU camera, CPU path) on
+3225 models. Two more real defects, found by the auditors and fixed here.
+
+### Fixed
+
+* **189 models rendered as nothing** because every one of their geosets is additive.
+  The preview drops additive glow planes on purpose, but for the Wisp, the Bone Yard,
+  the Graveyard, the Undead Shipyard and the selection circle there is nothing else, so
+  the frame stayed empty. When a model has no other geometry, its additive layers are
+  drawn instead of being dropped.
+* **Textures baked to an artist's machine never resolved.** Two models reference
+  `\\guldan\drive1\...\star5tga.tga`; the files sit in the archives as
+  `Textures\star5tga.blp`. `Resources` now falls back to a base-name match and records
+  what it substituted in `Resources.fallbacks`.
+* **The GPU camera framed the union of four sequences** instead of the active one, and
+  only counted the first frames: a Death pose stretched the radius up to 114x, so 43
+  effects were a fraction of a pixel (and 6 mini icons were clipped by a 0.05 near
+  plane). The camera now measures the current sequence, frames only solid items like the
+  CPU renderer, refits when the sequence changes, and the near plane scales down to
+  1e-4.
+* **Contact-shadow false positives** in the sweep: "content" on the CPU was the shadow
+  of five missile models. The sweep now compares against `render(..., shadow=False)`.
+
+### The sweep, before and after
+
+`python tools/sweep_models.py --gl`
+
+| | before 1.6.3 | after |
+|---|---|---|
+| models | 3225 | 3225 |
+| exceptions | 0 | 0 |
+| rendered ok | 3162 | **3203** |
+| blank frames on GPU | 43 | **1** |
+| no geometry (particle-only) | 398 | **209** |
+| no texture | 2 | **0** |
+| elapsed | 50 s | 54 s |
+
+The remaining blank is `RaiseSkeleton` (0.18% of the frame on both paths - a thin dark
+skeleton, below the sweep's 0.1% threshold). The 209 without geometry have no `GEOS`
+chunk at all: their visuals come from particles, ribbons and light, which neither
+renderer implements.
+
+### Added
+
+* `tools/sweep_models.py` - the audit used here, runnable: `--gl` drives the OpenGL
+  viewport, `--limit` for a quick pass, writes `sweep.json` + `summary.txt`.
+
+### Testing
+
+* 7 new regression tests (119 total): additive-only models keep their items, normal
+  models still skip glow planes, the dev-path texture resolves, unknown textures still
+  report missing, the near plane no longer clips small units, and the camera of an effect
+  is at least 2x tighter than the all-sequence union.
+
 ## [1.6.2] - 2026-10-17
 
 Full sweep over every model: 3225 checked in 50 seconds, 0 exceptions, and three
