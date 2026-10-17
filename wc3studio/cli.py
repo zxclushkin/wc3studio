@@ -497,7 +497,7 @@ def cmd_bundle(args) -> int:
     session = _open(args)
     requested = {part.strip().lower() for part in args.formats.split(",") if part.strip()}
     if "all" in requested:
-        requested = {"models", "glb", "raw", "sounds", "tables", "ui"}
+        requested = {"models", "glb", "raw", "sounds", "icons", "tables", "ui"}
     options = BundleOptions(
         out=Path(args.out),
         formats=requested,
@@ -534,7 +534,8 @@ def cmd_bundle(args) -> int:
 
     counts = stats["counts"]
     print("\nwritten:")
-    for name in ("models", "glb", "raw", "sounds", "tables", "ui", "previews", "indexed"):
+    for name in ("models", "glb", "raw", "sounds", "icons", "tables", "ui",
+                 "previews", "indexed"):
         if counts.get(name):
             print(f"  {name:<9} {counts[name]:>6}")
     print(f"  size      {stats['bytes'] / 1048576:>10.1f} MiB")
@@ -580,6 +581,96 @@ def cmd_audio(args) -> int:
         print()
         for item in files[: args.limit or 40]:
             print(f"  {item.size / 1024:>8.1f} KiB  {item.category:<10} {item.internal}")
+    return 0
+
+
+def cmd_icons(args) -> int:
+    from .icons import KINDS, build_index, export
+    from .tables import TableDatabase
+    from .ui import build_contact_sheet
+    session = _open(args)
+    index = build_index(session.game, TableDatabase(session.game))
+    kinds = [args.kind] if args.kind else list(KINDS)
+
+    records = [record for record in index.records if record.kind in kinds]
+    if args.filter:
+        needle = args.filter.lower()
+        records = [record for record in records
+                   if needle in record.id.lower() or needle in record.name.lower()
+                   or needle in record.icon.lower()]
+    if args.limit:
+        records = records[: args.limit]
+
+    if args.out:
+        out = Path(args.out)
+        stats = export(index, session.resources, out, kinds=kinds, limit=args.limit)
+        print(f"written {stats['written']} PNG ({stats['bytes'] / 1048576:.1f} MiB), "
+              f"{stats['icons']} unique icons for {stats['records']} objects -> {out.resolve()}")
+        if stats["failed"]:
+            print(f"failed: {stats['failed']}")
+        print(f"index: {stats['index']}")
+    else:
+        print(f"{'kind':<9}{'objects':>8}{'icons':>7}{'models':>8}{'МБ':>7}")
+        for kind in kinds:
+            items = [record for record in index.records if record.kind == kind]
+            unique = {record.icon for record in items}
+            models = sum(1 for record in items if record.model)
+            size = sum(session.game.size(path) for path in unique) / 1048576
+            print(f"{kind:<9}{len(items):>8}{len(unique):>7}{models:>8}{size:>7.1f}")
+        total_icons = {record.icon for record in index.records if record.kind in kinds}
+        print(f"{'total':<9}{len(records):>8}{len(total_icons):>7}"
+              f"{sum(1 for r in records if r.model):>8}")
+        print("\n--out DIR — выгрузить PNG, --sheet FILE — контактный лист")
+
+    if args.sheet:
+        images, labels = [], []
+        for record in records[: args.sheet_tiles]:
+            image = session.resources.image(record.icon)
+            if image is not None:
+                images.append(image)
+                labels.append(f"{record.id}")
+        if images:
+            sheet = build_contact_sheet(images, labels, tile=args.tile,
+                                        columns=args.columns)
+            target = Path(args.sheet)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            sheet.save(target)
+            print(f"contact sheet -> {target.resolve()} "
+                  f"({sheet.width}x{sheet.height}, {len(images)} иконок)")
+
+    if args.details:
+        for record in records[: args.limit or 20]:
+            print(f"  {record.kind:<8} {record.id:<8} {record.icon_name:<28} {record.name}")
+    return 0
+
+
+def cmd_icon(args) -> int:
+    from .icons import build_index
+    from .tables import TableDatabase
+    session = _open(args)
+    index = build_index(session.game, TableDatabase(session.game))
+    record = None
+    for wanted in args.what:
+        record = index.by_id(wanted) or index.for_model(wanted)
+        if record is None:
+            print(f"error: no icon for {wanted!r}", file=sys.stderr)
+            return 3
+        image = session.resources.image(record.icon)
+        print(f"{record.kind:<8} {record.id:<8} {record.name}")
+        print(f"   icon    : {record.icon}" + (f"  ({image.width}x{image.height})"
+                                              if image else ""))
+        if record.disabled:
+            print(f"   disabled: {record.disabled}")
+        if record.model:
+            print(f"   model   : {record.model}")
+        if record.buttonpos:
+            print(f"   button  : {record.buttonpos}")
+        if args.out:
+            target = Path(args.out)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if image is not None:
+                image.save(target)
+                print(f"   written : {target.resolve()}")
     return 0
 
 
@@ -1054,6 +1145,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--out", help="folder for --extract")
     p.add_argument("--limit", type=int, default=0)
     p.set_defaults(func=cmd_audio)
+
+    p = subparsers.add_parser("icons", help="command-button icons for units, abilities, upgrades, items")
+    add_game(p)
+    p.add_argument("--kind", default="", choices=["", "unit", "ability", "upgrade", "item"])
+    p.add_argument("--filter", help="only ids/names/icons containing this")
+    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--out", help="write the icons as PNG here")
+    p.add_argument("--sheet", help="write a contact sheet here")
+    p.add_argument("--sheet-tiles", type=int, default=48)
+    p.add_argument("--tile", type=int, default=96)
+    p.add_argument("--columns", type=int, default=8)
+    p.add_argument("--details", action="store_true", help="print the records")
+    p.set_defaults(func=cmd_icons)
+
+    p = subparsers.add_parser("icon", help="icon of one unit, ability, upgrade or item")
+    add_game(p)
+    p.add_argument("what", nargs="+", help="id (hfoo, AHhb) or a model path")
+    p.add_argument("--out", help="save the icon as PNG")
+    p.set_defaults(func=cmd_icon)
 
     p = subparsers.add_parser("agent", help="JSON API for AI agents (request on stdin or --call)")
     p.add_argument("request", nargs=argparse.REMAINDER,
