@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-17
+
+Everything at once.
+
+### Added
+
+* **`bundle` command** (`wc3studio/bundle.py`) — one call exports a whole asset pack into
+  a folder and, optionally, a single `.zip`:
+  * `models` — OBJ + MTL + PNG textures,
+  * `glb` — glTF per model **with the skeleton and every animation**,
+  * `raw` — the original `.mdx` files,
+  * `tables` — all gameplay tables as CSV,
+  * `ui` — the interface artwork as PNG,
+  * `--previews` — a short GIF per model of its `Stand` animation,
+  * plus `manifest.json` with counts, sizes, timings and any per-model errors.
+* **`--zip`** writes `<out>.zip` next to the folder; the archive contains the manifest too.
+* **GUI** — an "Bundle everything…" dialog in the Export tab: format checkboxes, model
+  limit and path filter, live progress bar, and a summary when it finishes.
+* **Tests** — 6 new (62 total): zip round-trip, option normalisation, and game-backed
+  bundles that check counts, the exported tree, the manifest and that the `.glb` inside a
+  bundle really carries animations. The zip-vs-manifest ordering bug was caught this way.
+
+### Notes
+
+* A full bundle of all 3225 models with OBJ + glTF + raw + tables is roughly **2 GiB** and
+  takes ~15–20 minutes on this machine; most of the weight is the glTF animation data
+  (~0.55 MiB per model). Use `--limit` or `--filter` for a quick subset.
+
 ## [1.1.0] - 2026-10-17
 
 The game's numbers and its interface.

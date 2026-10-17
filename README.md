@@ -30,6 +30,7 @@
 | **Экспорт** | **OBJ + MTL + PNG-текстуры** и **glTF 2.0 (.glb)** со скелетом и всеми анимациями |
 | **Данные** | 213 таблиц (SLK + INI) → CSV/JSON, склеенная база **812 юнитов** с русскими названиями и всеми характеристиками |
 | **Интерфейс** | 86 FDF → дерево **2239 фреймов** с наследованием шаблонов, 1214 локализованных строк, выгрузка 1561 картинки UI в PNG |
+| **Бандл** | `bundle` — всё сразу в папку и/или **zip**: OBJ, glTF с анимациями, `.mdx`, таблицы CSV, интерфейс PNG, GIF-превью, `manifest.json` |
 | **Проверка** | `validate` (индексы OBJ, ссылки на MTL, структура GLB) и `doctor` (окружение, поиск игры) |
 
 ## Установка
@@ -64,6 +65,9 @@ wc3studio tables                                  # какие есть табл
 wc3studio units --limit 10                        # база юнитов с русскими названиями
 wc3studio ui --frames --filter backdrop           # фреймы интерфейса
 wc3studio ui-assets --out out\ui --sheet out\ui.png --filter Widgets
+
+# всё сразу в папку и одним zip (главная команда, если нужен весь набор)
+wc3studio bundle --out wc3_assets --formats models,glb,raw,tables --zip
 ```
 
 Модель можно указывать полным внутренним путём, частичным или просто именем файла
@@ -146,6 +150,45 @@ wc3studio ui-assets --out out\ui --filter Widgets --sheet out\ui.png
 * 1214 локализованных строк (в этой установке — русских): `|Cffffff00Ловкость|R` и т.п.;
 * выгрузка картинок интерфейса: 1561 изображение, 84 МиБ, плюс контактный лист.
 
+## Скачать всё сразу
+
+Одна команда собирает полный набор в папку и, если нужно, одним zip-архивом:
+
+```powershell
+# всё: модели (OBJ+PNG), glTF с анимациями, исходные .mdx, таблицы CSV + zip
+wc3studio bundle --out wc3_assets --formats models,glb,raw,tables --zip
+
+# плюс интерфейс и короткие GIF-превью анимаций (медленнее)
+wc3studio bundle --out wc3_assets --formats models,glb,raw,tables,ui --previews --zip
+
+# быстрая проба: 20 моделей
+wc3studio bundle --out wc3_assets --limit 20 --filter "Units\Human" --zip
+```
+
+Что попадает в папку:
+
+```
+wc3_assets/
+  Units/Human/Footman/Footman.obj  + .mtl + .gif   модели (структура как в игре)
+  Units/Human/Footman/Footman.glb                  glTF: скелет + все анимации
+  raw/Units/Human/Footman/Footman.mdx              исходники
+  textures/Textures/Footman.blp.png                общие текстуры
+  tables/Units/UnitBalance.slk.csv                 таблицы данных
+  ui/UI/Widgets/....png                            интерфейс (с --formats ...,ui)
+  manifest.json                                    что записано, сколько, ошибки
+wc3_assets.zip                                     если указан --zip
+```
+
+**Анимации** для модели уже лежат внутри `.glb`: каждая последовательность MDX
+(`Stand`, `Walk`, `Attack`, `Death`…) становится отдельной glTF-анимацией со всеми
+костями. Дополнительно `--previews` рендерит по короткому GIF на модель (по умолчанию
+из `Stand`), а `--sequences Stand,Walk` ограничивает набор анимаций в glTF.
+
+Сколько это весит и длится (замерено на этой машине): 71 модель Human-юнитов
+с `models,glb,raw,tables` — **56 МиБ за 27 секунд**, zip — 31 МиБ. Полный набор из
+3225 моделей — примерно **2 ГиБ и 15–20 минут**, из них больше половины — glTF
+(около 0.55 МиБ на модель, потому что внутри анимации).
+
 ## Библиотека
 
 ```python
@@ -192,6 +235,7 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 | `gltf.py` | экспорт .glb (скин + анимации) и чтение .glb для проверки |
 | `resources.py` | разрешение путей текстур и кэш изображений |
 | `pipeline.py` | `Session`, рендер анимации, GIF/MP4 |
+| `bundle.py` | `bundle`: модели, glTF, raw, таблицы и интерфейс в папку/zip + `manifest.json` |
 | `cli.py`, `gui.py` | интерфейсы |
 
 ## Технические заметки
@@ -232,7 +276,7 @@ print(ui.strings()["AGILITY"])                    # 'Ловкость'
 python -m unittest discover -s tests -v
 ```
 
-56 тестов в трёх наборах:
+62 теста в четырёх наборах:
 
 * **`tests/test_synthetic.py`** — модель MDX собирается прямо в памяти и проходит весь
   конвейер (парсинг → рендер → OBJ → GLB → чтение обратно). Работает без игры, поэтому
@@ -241,6 +285,10 @@ python -m unittest discover -s tests -v
 * **`tests/test_tables_ui.py`** — тоже без игры: синтетические SLK (с «ленивым» `Y` и
   экранированными кавычками), INI с секциями и разреженными ключами, FDF со всеми
   вариантами синтаксиса и вложенными блоками, CSV/JSON-экспорт, контактный лист.
+* **`tests/test_bundle.py`** — zip-складывание папки (без игры) и сборка бандла на реальных
+  архивах: сколько файлов получилось, куда, что в `manifest.json`, и что `.glb` внутри
+  бандла действительно содержит анимации. Тест на порядок «манифест → архив» поймал
+  настоящую ошибку: манифест сначала писался после архивации и не попадал в zip.
 * **`tests/test_wc3studio.py`** и игровые тесты в `test_tables_ui.py` — на реальных
   архивах: 812 юнитов, ноль предупреждений на 86 FDF, локализованные строки, инвентарь
   картинок. Без установленной игры помечаются как skipped.
@@ -264,9 +312,10 @@ wc3studio/            пакет
   gltf.py             .glb (скин + анимации) и его чтение
   resources.py        текстуры и кэш
   pipeline.py         Session — общий слой для CLI и GUI
+  bundle.py           bundle: полный набор в папку/zip + manifest
   cli.py  gui.py      интерфейсы
   vendor/             StormLib.dll (x64, MIT)
-tests/                56 тестов
+tests/                62 теста
 tools/                smoke-скрипты, проверка GLB через trimesh, захват окна
 docs/                 скриншот, галерея, демо-анимация, картинка интерфейса
 .github/workflows/    CI
