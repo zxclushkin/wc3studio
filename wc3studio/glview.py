@@ -11,8 +11,9 @@ import time
 import numpy as np
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QImage, QMatrix4x4
+from PySide6.QtGui import QOpenGLContext
 from PySide6.QtOpenGL import (QOpenGLBuffer, QOpenGLShader, QOpenGLShaderProgram,
-                              QOpenGLTexture, QOpenGLVertexArrayObject)
+                             QOpenGLTexture, QOpenGLVertexArrayObject)
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from .render import (DEFAULT_BG, collect, fit_camera, look_at_matrix,
@@ -99,6 +100,8 @@ class ModelView(QOpenGLWidget):
         self._frames = 0
         self.measured_fps = 0.0
         self._drag = None
+        self._uploaded_frame = None
+        self._white = None
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
@@ -106,7 +109,36 @@ class ModelView(QOpenGLWidget):
         self.setFocusPolicy(Qt.StrongFocus)
 
     # -- model ------------------------------------------------------------
+    def _ensure_context(self) -> bool:
+        """Make the widget's context current; True when we must release it again."""
+        context = self.context()
+        if context is None:
+            return False
+        if QOpenGLContext.currentContext() is context:
+            return False
+        self.makeCurrent()
+        return True
+
+    def _release_context(self, acquired: bool) -> None:
+        if acquired:
+            self.doneCurrent()
+
+    def _clear_textures(self) -> None:
+        """Drop the GPU textures of the previous model; the cache is per model."""
+        if not self.textures:
+            return
+        acquired = self._ensure_context()
+        try:
+            for texture in self.textures.values():
+                texture.destroy()
+        finally:
+            self._release_context(acquired)
+        self.textures.clear()
+        self._white = None
+
     def set_model(self, internal_path: str) -> None:
+        self._clear_textures()
+        self._uploaded_frame = None
         self.model_path = internal_path
         self.model = self.session.load(internal_path)
         self.animator = self.session.animator_for(self.model)
@@ -119,7 +151,12 @@ class ModelView(QOpenGLWidget):
         self.update()
 
     def set_all_geosets(self, enabled: bool) -> None:
+        """Hidden geosets are a different item list *and* a different bounding box."""
         self.all_geosets = bool(enabled)
+        self._rebuild_camera()
+        self._uploaded_frame = None
+        if self.context() is not None and self.program is not None:
+            self._rebuild_geometry()
         self.update()
 
     def set_sequence(self, name: str) -> None:
@@ -129,6 +166,9 @@ class ModelView(QOpenGLWidget):
         self.sequence = sequence
         self.frame = float(sequence["start"])
         self.update()
+
+    def has_geometry(self) -> bool:
+        return bool(self.items)
 
     def sequences(self) -> list:
         return list(self.model.sequences) if self.model else []
@@ -214,6 +254,15 @@ class ModelView(QOpenGLWidget):
         return self._white
 
     def _rebuild_geometry(self) -> None:
+        if self.program is None or self.model is None or self.context() is None:
+            return
+        acquired = self._ensure_context()
+        try:
+            self._rebuild_geometry_inner()
+        finally:
+            self._release_context(acquired)
+
+    def _rebuild_geometry_inner(self) -> None:
         if self.program is None or self.model is None:
             return
         items = collect(self.model, self.session.resources, all_geosets=self.all_geosets,
@@ -224,6 +273,7 @@ class ModelView(QOpenGLWidget):
             if item.vao is not None:
                 item.vao.destroy()
         self.items = []
+        self._uploaded_frame = None
         for source in items:
             positions = np.asarray(source["pos"], dtype=np.float32)
             normals = source["nrm"]

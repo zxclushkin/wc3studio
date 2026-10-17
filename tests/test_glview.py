@@ -63,5 +63,68 @@ class TestOptionalQt(unittest.TestCase):
         self.assertTrue(hasattr(gui_qt, "MainWindow"))
 
 
+def _view_or_skip():
+    """A ModelView without showing it: no GL context, but the state is real."""
+    try:
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        raise unittest.SkipTest("PySide6 is not installed")
+    app = QApplication.instance()
+    if app is None:
+        try:
+            app = QApplication([])
+        except Exception as exc:  # noqa: BLE001 - no display in CI
+            raise unittest.SkipTest(f"no Qt platform: {exc}") from exc
+    from wc3studio.pipeline import Session
+    from wc3studio.stormlib import StormLibError
+    from wc3studio.glview import ModelView
+    try:
+        session = Session(None)
+    except StormLibError as exc:
+        raise unittest.SkipTest(f"no Warcraft III installation: {exc}") from exc
+    return ModelView(session), session
+
+
+class TestViewState(unittest.TestCase):
+    """Regressions from the bug hunt: state that used to be missing or stale."""
+
+    def setUp(self):
+        self.view, self.session = _view_or_skip()
+
+    def tearDown(self):
+        self.view.deleteLater()
+        self.session.close()
+
+    def test_uploaded_frame_is_initialised(self):
+        """It was missing, so paintGL raised AttributeError and the view went blank."""
+        self.assertIsNone(self.view._uploaded_frame)
+        self.assertIsNone(self.view._white)
+        self.assertEqual(self.view.textures, {})
+
+    def test_all_geosets_refits_the_camera(self):
+        """Toggling it used to change the flag but keep the old framing and items."""
+        path = self.session.resolve(r"Buildings\Human\TownHall\TownHall.mdx")
+        self.view.set_model(path)
+        pose_radius = float(self.view.camera["radius"])
+        self.view.set_all_geosets(True)
+        self.assertTrue(self.view.all_geosets)
+        self.assertNotEqual(float(self.view.camera["radius"]), pose_radius,
+                            "forcing every geoset on must refit the camera")
+        self.assertIsNone(self.view._uploaded_frame, "the frame must be re-uploaded")
+
+    def test_model_without_geometry_is_reported(self):
+        path = self.session.resolve(r"Abilities\Spells\Undead\AntiMagicShell\AntiMagicShell.mdx")
+        self.view.set_model(path)
+        self.assertFalse(self.view.has_geometry(),
+                         "target-only models have no triangles and must say so")
+
+    def test_real_unit_has_geometry_and_a_camera(self):
+        path = self.session.resolve("knight")
+        self.view.set_model(path)
+        self.assertEqual(self.view.model_path, path)
+        self.assertIsNotNone(self.view.camera)
+        self.assertTrue(self.view.model.geosets)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

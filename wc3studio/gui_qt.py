@@ -233,9 +233,14 @@ class MainWindow(QMainWindow):
         self._fill_panels()
         if sequence:
             self.sequence_box.setCurrentText(sequence)
-        self.view.play()
-        self.play_button.setText("⏸ Pause")
-        self.statusBar().showMessage(f"{internal}  -  {len(self.view.items)} геосетов")
+        if self.view.has_geometry():
+            self.view.play()
+            self.play_button.setText("⏸ Pause")
+            self.statusBar().showMessage(f"{internal}  -  {len(self.view.items)} геосетов")
+        else:
+            self.stop_playback()
+            self.statusBar().showMessage(
+                f"{internal}  -  у модели нет геометрии (только точки привязки и эффекты)")
 
     def _fill_panels(self) -> None:
         model = self.view.model
@@ -288,6 +293,10 @@ class MainWindow(QMainWindow):
 
     def _on_all_geosets(self, enabled: bool) -> None:
         self.view.set_all_geosets(enabled)
+
+    def stop_playback(self) -> None:
+        self.view.stop()
+        self.play_button.setText("▶ Play")
 
     def _toggle_play(self) -> None:
         self.view.toggle()
