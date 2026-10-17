@@ -63,6 +63,11 @@ def draws_item(filter_mode: int) -> bool:
     return filter_mode != FILTER_ADDITIVE
 
 
+def near_plane(distance: float) -> float:
+    """Just in front of the eye. The old 0.05 floor clipped units smaller than that."""
+    return max(distance * 0.02, 1e-4)
+
+
 class _Item:
     """One drawable geoset: static indices, dynamic vertices."""
 
@@ -174,6 +179,7 @@ class ModelView(QOpenGLWidget):
             return
         self.sequence = sequence
         self.frame = float(sequence["start"])
+        self._rebuild_camera()
         self.update()
 
     def has_geometry(self) -> bool:
@@ -183,27 +189,30 @@ class ModelView(QOpenGLWidget):
         return list(self.model.sequences) if self.model else []
 
     def _rebuild_camera(self) -> None:
-        """Frame what is actually drawn, not every geoset in the file.
+        """Frame the current sequence, not the union of the first four.
 
-        fit_camera() skims all geometry, including the huge additive glow planes that
-        both renderers deliberately skip; effects then ended up a pixel tall. Bounds
-        are taken from collect() instead, which applies the same skip as the drawing.
+        Unioning the starts of several sequences stretched the camera by up to 114x
+        (a Death pose throws the bounds far away, and some units move between
+        sequences), so effects ended up a fraction of a pixel. Only solid items are
+        measured, exactly like the CPU renderer does.
         """
         if self.model is None:
             self.camera = None
             return
+        sequence = self.sequence or (self.model.sequences[0] if self.model.sequences else None)
+        frame = float(sequence["start"]) if sequence else 0.0
         low = np.full(3, np.inf)
         high = np.full(3, -np.inf)
-        frames = [(sequence["start"], 0.0) for sequence in self.model.sequences[:4]] or [(0, 0.0)]
-        for frame, local_time in frames:
-            for item in collect(self.model, self.session.resources,
-                                all_geosets=self.all_geosets, animator=self.animator,
-                                frame=frame, local_time=local_time):
-                points = item["pos"]
-                if len(points):
-                    low = np.minimum(low, points.min(axis=0))
-                    high = np.maximum(high, points.max(axis=0))
-        if not np.isfinite(low).all() or not len(high):
+        for item in collect(self.model, self.session.resources,
+                            all_geosets=self.all_geosets, animator=self.animator,
+                            frame=frame, local_time=0.0):
+            if not item["solid"]:
+                continue
+            points = item["pos"]
+            if len(points):
+                low = np.minimum(low, points.min(axis=0))
+                high = np.maximum(high, points.max(axis=0))
+        if not np.isfinite(low).all():
             self.camera = None
             return
         self.camera = camera_for_bounds(low, high)
@@ -392,7 +401,7 @@ class ModelView(QOpenGLWidget):
         eye = center + direction * distance
         view = look_at_matrix(eye, center)
         aspect = self.width() / max(self.height(), 1)
-        near = max(distance * 0.02, 0.05)
+        near = near_plane(distance)
         far = distance + radius * 6.0
         projection = perspective_matrix(1.0 / np.tan(np.radians(self.fov) / 2.0),
                                         aspect, near, far)
@@ -405,9 +414,9 @@ class ModelView(QOpenGLWidget):
         light /= np.linalg.norm(light)
         self.program.setUniformValue("uLight", float(light[0]), float(light[1]), float(light[2]))
 
-        for entry in self.items:
-            if not draws_item(entry.filter_mode):
-                continue
+        drawables = [entry for entry in self.items if draws_item(entry.filter_mode)] \
+            or self.items   # all-additive model: draw it rather than nothing
+        for entry in drawables:
             if entry.blend:
                 functions.glEnable(0x0BE2)  # GL_BLEND
                 functions.glBlendFunc(0x0302, 0x0303)  # SRC_ALPHA, ONE_MINUS_SRC_ALPHA

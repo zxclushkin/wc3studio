@@ -45,6 +45,7 @@ def collect(model: Model, resources: Resources | None, all_geosets: bool = False
     """Turn a model into a list of draw items (positions, faces, uv, texture...)."""
     hidden = model.hidden_geosets if all_geosets else model.pose_hidden_geosets
     items = []
+    additive_only = []
     texture_cache: dict[int, tuple] = {}
 
     for geoset_index, geoset in enumerate(model.geosets):
@@ -73,10 +74,10 @@ def collect(model: Model, resources: Resources | None, all_geosets: bool = False
         else:
             texture, replaceable_glow = None, False
 
-        if skip_effects and filter_mode == FILTER_ADDITIVE:
-            # additive geosets are glow/splat planes: soft gradients in game, hard quads
-            # without a real glow renderer, so leave them out of previews
-            continue
+        # additive geosets are glow/splat planes: soft gradients in game, hard quads
+        # without a real glow renderer, so they stay out of previews - unless the model
+        # has nothing else (the Wisp, the Bone Yard, selection circles are like that)
+        additive = skip_effects and filter_mode == FILTER_ADDITIVE
 
         positions = np.asarray(geoset.vertices, dtype=np.float32).reshape(-1, 3)
         normals = np.asarray(geoset.normals, dtype=np.float32).reshape(-1, 3) if geoset.normals else None
@@ -91,7 +92,7 @@ def collect(model: Model, resources: Resources | None, all_geosets: bool = False
                 if skinned_normals is not None:
                     normals = skinned_normals.astype(np.float32)
 
-        items.append({
+        entry = {
             "pos": positions,
             "faces": np.asarray(geoset.faces, dtype=np.int32).reshape(-1, 3),
             "uv": np.asarray(uv, dtype=np.float32).reshape(-1, 2) if uv else None,
@@ -106,7 +107,13 @@ def collect(model: Model, resources: Resources | None, all_geosets: bool = False
             "alpha": float(layer.alpha) if layer is not None else 1.0,
             "material_id": geoset.material_id,
             "geoset": geoset_index,
-        })
+        }
+        if additive:
+            additive_only.append(entry)
+        else:
+            items.append(entry)
+    if not items and additive_only:
+        items = additive_only
     return items
 
 
