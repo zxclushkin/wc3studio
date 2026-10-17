@@ -339,7 +339,7 @@ class App(tk.Tk):
         ttk.Separator(export_frame).pack(fill="x", pady=(12, 8))
         ttk.Button(export_frame, text="Bundle everything…",
                    command=self._open_bundle_dialog).pack(fill="x")
-        ttk.Label(export_frame, text="Все модели, glTF с анимациями, .mdx, таблицы\nи интерфейс — в одну папку и/или zip.",
+        ttk.Label(export_frame, text="Все модели, glTF с анимациями, звуки,\nтаблицы и интерфейс — в папку и/или zip.",
                   style="Dim.TLabel", justify="left").pack(anchor="w", pady=(6, 0))
 
         # --- data tables tab
@@ -1069,6 +1069,7 @@ class App(tk.Tk):
         flags = {
             "models": tk.BooleanVar(value=True),
             "glb": tk.BooleanVar(value=True),
+            "sounds": tk.BooleanVar(value=True),
             "raw": tk.BooleanVar(value=False),
             "tables": tk.BooleanVar(value=True),
             "ui": tk.BooleanVar(value=False),
@@ -1090,6 +1091,7 @@ class App(tk.Tk):
         labels = {
             "models": "Модели: OBJ + MTL + PNG-текстуры",
             "glb": "glTF (.glb) — со скелетом и всеми анимациями",
+            "sounds": "Звуки модели (WAV, лежат рядом с моделью)",
             "raw": "Исходные .mdx",
             "tables": "Таблицы данных (CSV)",
             "ui": "Картинки интерфейса (PNG)",
@@ -1121,7 +1123,7 @@ class App(tk.Tk):
             if state["running"]:
                 return
             from .bundle import BundleOptions
-            chosen = {key for key in ("models", "glb", "raw", "tables", "ui")
+            chosen = {key for key in ("models", "glb", "sounds", "raw", "tables", "ui")
                       if flags[key].get()}
             if not chosen and not flags["previews"].get():
                 messagebox.showinfo("wc3studio", "Выберите хотя бы один формат.", parent=window)
@@ -1162,8 +1164,9 @@ class App(tk.Tk):
             return
         percent = 100 * done / max(total, 1)
         state["bar"].configure(value=percent)
-        label = {"models": "модели", "raw": "сырые .mdx", "tables": "таблицы",
-                 "ui": "интерфейс", "zip": "архив"}.get(kind, kind)
+        label = {"models": "модели", "raw": "сырые .mdx", "sounds": "звуки",
+                 "tables": "таблицы", "ui": "интерфейс", "index": "индекс",
+                 "zip": "архив"}.get(kind, kind)
         state["progress"].set(f"{label}: {done}/{total} ({percent:.0f}%)  {message[-70:]}")
 
     def _on_bundle_done(self, stats):
@@ -1174,7 +1177,8 @@ class App(tk.Tk):
             state["progress"].set(f"готово: {stats['bytes'] / 1048576:.1f} MiB")
             state["bar"].configure(value=100)
         counts = stats["counts"]
-        parts = [f"{name}: {counts[name]}" for name in ("models", "glb", "raw", "tables", "ui", "previews")
+        parts = [f"{name}: {counts[name]}" for name in ("models", "glb", "raw", "sounds",
+                                                        "tables", "ui", "previews", "indexed")
                  if counts[name]]
         summary = (f"Готово.\n\n" + "\n".join(parts)
                    + f"\n\nРазмер: {stats['bytes'] / 1048576:.1f} MiB")
