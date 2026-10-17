@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # StormLib ships as a Windows x64 DLL and the game lookup uses the Windows registry,
+    # so the project is tested on Windows.
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Version and CLI smoke test
+        run: |
+          python -m wc3studio --version
+          python -m wc3studio --help
+
+      - name: Tests
+        # Tests that need a Warcraft III install skip themselves; the synthetic model
+        # tests cover the parser, renderer and both exporters.
+        run: python -m unittest discover -s tests -v
