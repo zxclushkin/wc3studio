@@ -1061,7 +1061,7 @@ class App(tk.Tk):
             return
         window = tk.Toplevel(self)
         window.title("Bundle everything")
-        window.geometry("520x560")
+        window.geometry("520x470")
         window.configure(bg=BG)
         window.transient(self)
 
