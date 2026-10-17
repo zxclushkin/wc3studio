@@ -686,6 +686,17 @@ def cmd_mcp(args) -> int:
 
 
 def cmd_gui(args) -> int:
+    framework = (getattr(args, "framework", "") or "auto").lower()
+    if framework in ("auto", "qt"):
+        try:
+            from .gui_qt import run as run_qt
+        except ImportError as exc:
+            if framework == "qt":
+                print(f"error: the Qt window needs PySide6 ({exc})", file=sys.stderr)
+                return 2
+        else:
+            return run_qt(game_dir=args.game, model=args.model,
+                          sequence=args.sequence) or 0
     try:
         from .gui import run
     except ImportError as exc:  # pragma: no cover
@@ -1179,6 +1190,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="model to select at startup")
     p.add_argument("--sequence", help="animation to select at startup")
     p.add_argument("--tab", help="tab to open at startup: Model, Animations, Textures, Data, UI")
+    p.add_argument("--framework", default="auto", choices=["auto", "qt", "tk"],
+                   help="qt = PySide6 + OpenGL (smooth playback), tk = the classic window")
     p.set_defaults(func=cmd_gui)
 
     return parser
