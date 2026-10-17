@@ -15,9 +15,10 @@ from pathlib import Path
 
 __all__ = ["BundleOptions", "build_bundle", "zip_folder", "FORMATS"]
 
-FORMATS = ("models", "glb", "raw", "sounds", "tables", "ui")
+FORMATS = ("models", "glb", "raw", "sounds", "icons", "tables", "ui")
 AUDIO_EXTENSIONS = (".wav", ".mp3")
 DEFAULT_FORMATS = {"models", "glb", "sounds"}
+ICON_FORMATS = {"icons"}
 
 
 @dataclass
@@ -69,7 +70,8 @@ def build_bundle(session, options: BundleOptions, progress=None) -> dict:
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "game": str(session.root) if session.root else "",
         "formats": sorted(options.formats),
-        "counts": {"models": 0, "glb": 0, "raw": 0, "sounds": 0, "tables": 0, "ui": 0,
+        "counts": {"models": 0, "glb": 0, "raw": 0, "sounds": 0, "icons": 0,
+                   "tables": 0, "ui": 0,
                    "previews": 0, "indexed": 0},
         "bytes": 0,
         "errors": [],
@@ -157,6 +159,20 @@ def build_bundle(session, options: BundleOptions, progress=None) -> dict:
             if index % 50 == 0 or index == len(ordered):
                 report("sounds", index, len(ordered), folder)
 
+    # --- icons ------------------------------------------------------------
+    icon_index = None
+    if ICON_FORMATS & options.formats or options.index:
+        from .icons import build_index
+        from .tables import TableDatabase
+        icon_index = build_index(session.game, TableDatabase(session.game))
+    if "icons" in options.formats and icon_index is not None:
+        from .icons import export as export_icons
+        result = export_icons(icon_index, session.resources, out / "icons",
+                              progress=lambda done, total, message: report(
+                                  "icons", done, total, message))
+        stats["bytes"] += result["bytes"]
+        stats["counts"]["icons"] = result["written"]
+
     # --- data tables ------------------------------------------------------
     if "tables" in options.formats:
         from .tables import TableDatabase
@@ -197,7 +213,8 @@ def build_bundle(session, options: BundleOptions, progress=None) -> dict:
     # --- per-model index --------------------------------------------------
     index_path = out / "models.json"
     if options.index and models:
-        records = _build_index(session, models, audio, written, out, options, report)
+        records = _build_index(session, models, audio, written, out, options, report,
+                               icon_index=icon_index)
         index_path.write_text(json.dumps(records, ensure_ascii=False, indent=1),
                               encoding="utf-8")
         stats["counts"]["indexed"] = len(records)
@@ -221,7 +238,8 @@ def build_bundle(session, options: BundleOptions, progress=None) -> dict:
     return stats
 
 
-def _build_index(session, models, audio, written, out, options, report=None) -> list:
+def _build_index(session, models, audio, written, out, options, report=None,
+                 icon_index=None) -> list:
     """One record per model: what was exported, its textures, sounds and animations."""
     records = []
     total = len(models)
@@ -243,6 +261,7 @@ def _build_index(session, models, audio, written, out, options, report=None) -> 
                 portrait = name
                 break
         sounds = [name.rsplit("\\", 1)[-1] for name in audio.get(key, [])]
+        icon = icon_index.for_model(internal) if icon_index is not None else None
         records.append({
             "model": internal,
             "folder": folder.replace("\\", "/"),
@@ -251,6 +270,9 @@ def _build_index(session, models, audio, written, out, options, report=None) -> 
             "textures": [texture.path for texture in model.textures if texture.path],
             "sounds": sounds,
             "sound_count": len(sounds),
+            "icon": icon.icon if icon else "",
+            "icon_png": ("icons/" + icon.icon.replace(chr(92), "/") + ".png"
+                          if icon and "icons" in options.formats else ""),
             "triangles": model.triangle_count,
             "bones": len(model.nodes),
             "geosets": len(model.geosets),
