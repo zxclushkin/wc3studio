@@ -495,14 +495,18 @@ def cmd_doctor(args) -> int:
 def cmd_bundle(args) -> int:
     from .bundle import BundleOptions, build_bundle
     session = _open(args)
+    requested = {part.strip().lower() for part in args.formats.split(",") if part.strip()}
+    if "all" in requested:
+        requested = {"models", "glb", "raw", "sounds", "tables", "ui"}
     options = BundleOptions(
         out=Path(args.out),
-        formats={part.strip().lower() for part in args.formats.split(",") if part.strip()},
+        formats=requested,
         previews=args.previews,
         preview_size=args.preview_size,
         preview_fps=args.preview_fps,
         preview_frames=args.preview_frames,
         preview_sequence=args.preview_sequence,
+        index=not args.no_index,
         limit=args.limit,
         model_filter=args.filter or "",
         all_geosets=args.all_geosets,
@@ -515,7 +519,6 @@ def cmd_bundle(args) -> int:
     def progress(kind, done, total, message=""):
         if kind != state["kind"]:
             state["kind"] = kind
-            state["done"] = 0
         filled = int(24 * done / max(total, 1))
         percent = int(100 * done / max(total, 1))
         sys.stdout.write(f"\r  {kind:<8} [{'#' * filled:-<24}] {done}/{total} {percent:>3}% ")
@@ -531,14 +534,16 @@ def cmd_bundle(args) -> int:
 
     counts = stats["counts"]
     print("\nwritten:")
-    for name in ("models", "glb", "raw", "tables", "ui", "previews"):
-        if counts[name]:
+    for name in ("models", "glb", "raw", "sounds", "tables", "ui", "previews", "indexed"):
+        if counts.get(name):
             print(f"  {name:<9} {counts[name]:>6}")
     print(f"  size      {stats['bytes'] / 1048576:>10.1f} MiB")
     if stats.get("archive"):
         print(f"  archive   {Path(stats['archive']).resolve()} "
               f"({stats['archive_bytes'] / 1048576:.1f} MiB)")
     print(f"  manifest  {stats['manifest']}")
+    if stats.get("index"):
+        print(f"  index     {stats['index']}")
     if stats["errors"]:
         print(f"\n  errors: {len(stats['errors'])}")
         for error in stats["errors"][:10]:
@@ -974,9 +979,12 @@ def build_parser() -> argparse.ArgumentParser:
     p = subparsers.add_parser("bundle", help="export everything at once into a folder and/or zip")
     add_game(p)
     p.add_argument("--out", required=True, help="output folder")
-    p.add_argument("--formats", default="models,glb",
-                   help="comma separated: models (OBJ+MTL+PNG), glb, raw (.mdx), tables (CSV), ui (PNG)")
+    p.add_argument("--formats", default="models,glb,sounds",
+                   help="comma separated: models (OBJ+MTL+PNG), glb, raw (.mdx), sounds, "
+                        "tables (CSV), ui (PNG), or all")
     p.add_argument("--zip", action="store_true", help="also write <out>.zip")
+    p.add_argument("--no-index", action="store_true",
+                   help="skip models.json (per-model list of files, textures, sounds, animations)")
     p.add_argument("--previews", action="store_true",
                    help="render a short GIF per model (slow: several frames each)")
     p.add_argument("--preview-size", type=int, default=192)
