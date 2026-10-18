@@ -4,6 +4,34 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-10-17
+
+Release packaging: the wheel installed cleanly, but the metadata still said "alpha".
+
+### Fixed
+
+* **The `[qt]` extra did not exist**, although the README told people to run
+  `pip install -e ".[qt]"`: `pyproject.toml` only had `dev`. Added `qt` and `all`
+  extras with `PySide6>=6.5`.
+* **`Homepage = "https://github.com/"`** - a placeholder. There are now real
+  `Homepage`, `Repository`, `Issues` and `Changelog` URLs.
+* **`authors` said "wc3studio"** while LICENSE says Alexey (zxclushkin); the metadata
+  now matches the licence.
+* **README screenshots used relative paths** (`docs/screenshot.png`), which do not
+  render on PyPI. They now point at raw.githubusercontent URLs.
+* Classifiers were only "Python 3 / Windows": added Development Status 5,
+  OSI MIT, Python 3.10-3.13, `Environment :: Win32 (MS Windows)`, intended audience
+  and languages.
+
+### Verified for release
+
+* `python -m pip wheel .` produces `wc3studio-1.6.4-py3-none-any.whl` (423 KiB) with
+  `vendor/StormLib.dll`, `LICENSE`, the `wc3studio` entry point and the README as the
+  long description.
+* Clean `python -m venv` + `pip install <wheel>` + running from outside the repository:
+  `wc3studio --version` -> 1.6.4, `doctor` -> "ready" (4 archives, 3225 models),
+  `render --model sheep` -> 42 KiB PNG, `agent` -> 20 operations as JSON.
+
 ## [1.6.3] - 2026-10-17
 
 Sweep over the whole archive, then two audits in parallel (GPU camera, CPU path) on

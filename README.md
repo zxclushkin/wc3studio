@@ -11,7 +11,7 @@
 
 Есть **CLI** для скриптов и пакетной обработки и **два GUI**: быстрый на Qt + OpenGL и старый на Tkinter.
 
-![GUI](docs/screenshot.png)
+![GUI](https://raw.githubusercontent.com/zxclushkin/wc3studio/main/docs/screenshot.png)
 
 **Содержание:** [Возможности](#возможности) · [Установка](#установка) ·
 [Быстрый старт](#быстрый-старт) · [GUI](#gui) · [Таблицы данных](#таблицы-данных) ·
@@ -99,7 +99,7 @@ wc3studio gui --model knight --sequence Attack
 (инфо, анимации, текстуры, экспорт). Мышь — вращение, колесо — зум, `Space` — плей/пауза,
 снизу выбор анимации, fps и переключатель «все геосеты».
 
-![Qt GUI](docs/qt-gui.png)
+![Qt GUI](https://raw.githubusercontent.com/zxclushkin/wc3studio/main/docs/qt-gui.png)
 
 Почему появилось второе окно: старый просмотр тормозил не из-за Tk — конверсия кадра
 512×512 в Tk-картинку занимает 1.6 мс. Тормозил **программный растеризатор**: 155 мс на
@@ -154,7 +154,7 @@ wc3studio ui-textures --filter Widgets             # картинки интер
 wc3studio ui-assets --out out\ui --filter Widgets --sheet out\ui.png
 ```
 
-![UI artwork](docs/ui-sheet.png)
+![UI artwork](https://raw.githubusercontent.com/zxclushkin/wc3studio/main/docs/ui-sheet.png)
 
 * 2239 фреймов, 1849 уникальных имён, **ноль предупреждений** парсера на всех 86 файлах;
 * `ui-frame` показывает итоговые свойства с пометкой, из какого шаблона они пришли, и
@@ -234,7 +234,7 @@ zip — 67 МиБ. Полный набор с звуками — примерн�
 (включая звуки), лимит моделей, фильтр пути и прогресс-бар; работа идёт в отдельном
 потоке.
 
-![Bundle dialog](docs/bundle-dialog.png)
+![Bundle dialog](https://raw.githubusercontent.com/zxclushkin/wc3studio/main/docs/bundle-dialog.png)
 
 ## Для ИИ-агентов
 
@@ -329,7 +329,7 @@ total        1810    890    1085
 * `--out` кладёт PNG, сохраняя структуру архивов, и пишет `icons.json` с записями
   (id, имя, иконка, отключённая, модель, позиция кнопки).
 
-![Иконки](docs/icons.png)
+![Иконки](https://raw.githubusercontent.com/zxclushkin/wc3studio/main/docs/icons.png)
 
 ## Библиотека
 

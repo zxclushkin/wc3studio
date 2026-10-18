@@ -31,7 +31,7 @@ Or from the command line::
 """
 from __future__ import annotations
 
-__version__ = "1.6.3"
+__version__ = "1.6.4"
 
 from .agent import Api, capabilities
 from .anim import Animator

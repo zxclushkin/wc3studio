@@ -4,16 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "wc3studio"
-version = "1.6.3"
+version = "1.6.4"
 description = "Browse, extract, convert and animate Warcraft III assets (MPQ / MDX / BLP)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "wc3studio" }]
+authors = [{ name = "Alexey", email = "zxclushkin@users.noreply.github.com" }]
 keywords = ["warcraft", "warcraft3", "mpq", "mdx", "blp", "gltf", "obj", "game-assets"]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Win32 (MS Windows)",
     "Operating System :: Microsoft :: Windows",
+    "Intended Audience :: Developers",
+    "Natural Language :: Russian",
+    "Natural Language :: English",
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
     "Topic :: Games/Entertainment",
 ]
@@ -23,13 +33,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+qt = ["PySide6>=6.5"]
+all = ["PySide6>=6.5"]
 dev = ["pytest>=7"]
 
 [project.scripts]
 wc3studio = "wc3studio.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/"
+Homepage = "https://github.com/zxclushkin/wc3studio"
+Repository = "https://github.com/zxclushkin/wc3studio"
+Issues = "https://github.com/zxclushkin/wc3studio/issues"
+Changelog = "https://github.com/zxclushkin/wc3studio/blob/main/CHANGELOG.md"
 
 [tool.setuptools]
 packages = ["wc3studio"]
